@@ -1,0 +1,89 @@
+---
+real_time_market_dashboard:
+  description: |-
+    Create a comprehensive Indian stock market dashboard:
+    1. Track Nifty 50, Sensex, Bank Nifty levels and daily momentum.
+    2. Sector performance (Banking, IT, Auto, Pharma, FMCG, Metal).
+    3. FII/DII institutional net buying/selling activity in Rupee (₹ Crores).
+    4. Key macroeconomic factors influencing Indian equities.
+  expected_output: |-
+    ### 📈 Real-Time Market Dashboard
+    - **Nifty 50 & Sensex**: Current levels, percentage changes, and market sentiment.
+    - **Sector Performance**: Top gaining and laggard sectors in India.
+    - **FII / DII Institutional Activity**: Net flows in ₹ Crores.
+    - **Key Catalysts**: Global macro factors impacting Indian markets.
+  agent: perfect_market_dashboard_specialist
+  async_execution: true
+
+fundamental_stock_analysis:
+  description: |-
+    Conduct deep fundamental and corporate research on {indian_stock_ticker}:
+    1. Use wikipedia_search_tool to retrieve company background, business model, founders, and major subsidiaries.
+    2. Use indian_stock_data_tool to get verified live rates, Market Cap (₹ Crores), P/E Ratio, P/B Ratio, Return on Equity (ROE), Debt-to-Equity, and Dividend Yield.
+    3. Analyze recent quarterly revenue (₹ Crores), profit margins, corporate actions (splits, dividends), and growth catalysts.
+  expected_output: |-
+    ### 🔍 Fundamental Stock Analysis: {indian_stock_ticker}
+    1. **Business Profile & History**: Wikipedia summary of company model and industry leadership.
+    2. **Key Financial Ratios**: P/E, P/B, ROE, Debt/Equity, Dividend Yield.
+    3. **Quarterly Earnings & Growth**: Revenue growth in ₹ Crores, profit margins, and guidance.
+    4. **Investment Recommendation**: Fundamental Buy/Hold/Sell verdict with rationale.
+  agent: fundamental_research_expert
+  async_execution: true
+
+technical_analysis_report:
+  description: |-
+    Perform technical and chart analysis on {indian_stock_ticker}:
+    1. Use indian_stock_data_tool to get computed 14-day RSI, 20-day EMA (₹), 50-day EMA (₹), 200-day EMA (₹), and 52-week High/Low (₹).
+    2. Identify key support (₹) and resistance (₹) price levels.
+    3. Determine momentum trend signal (Bullish, Bearish, or Neutral).
+  expected_output: |-
+    ### 📉 Technical Analysis Report: {indian_stock_ticker}
+    1. **Technical Setup & Trend**: Current price setup relative to 20/50/200 EMAs.
+    2. **RSI-14 & Momentum**: RSI value and overbought/oversold condition.
+    3. **Support & Resistance**: Key support price (₹) and resistance target (₹).
+    4. **Trading Signal**: Entry price range (₹), stop-loss (₹), and target price (₹).
+  agent: technical_analysis_pro
+  async_execution: true
+
+master_investment_report:
+  description: |-
+    Synthesize all research into the Ultimate Master Trading & Investment Report for {indian_stock_ticker}.
+    
+    IMPORTANT FORMATTING REQUIREMENTS:
+    - Write the ENTIRE report in the user's requested language (e.g. English, Telugu, Hindi, or Tamil).
+    - Use the Rupee symbol (₹) for all price targets, entry levels, stop-losses, and market caps.
+    - Format output using clear numbered headings, bold highlights, and clean bullet points exactly like professional research documents.
+
+    REPORT STRUCTURE:
+    1. **Executive Summary & Conviction Rating (1-10)**
+    2. **Company Background & Wikipedia Profile**
+    3. **Verified Live Rates & Fundamental Valuation**
+    4. **Technical Indicators (RSI, 20/50/200 EMAs)**
+    5. **Estimated Profit & Loss Scenarios**:
+       - Current Rate: ₹[Price]
+       - Buy Entry Strategy: Buy around ₹[Entry Price] or on dips to ₹[Dip Price]
+       - Short-Term Target 1: ₹[Target 1] (% Estimated Profit)
+       - Medium-Term Target 2: ₹[Target 2] (% Estimated Profit)
+       - Stop-Loss Strategy: Implement stop-loss at ₹[Stop Loss Price] (% Max Risk)
+       - Risk-to-Reward Ratio (e.g. 1:2.5)
+    6. **Action Plan with Specific Entry/Exit Strategies and Timelines**:
+       - Entry Strategy: How to accumulate shares
+       - Monitoring Timeline: Review frequency and quarterly checkpoints
+       - Exit Criteria: When to lock profits or trigger stop-loss
+    7. **Trading Mentorship & Risk Management Rules**:
+       - Educational advice training the user on position sizing and discipline.
+  expected_output: |-
+    # 📊 Perfect Indian Stock Intelligence Report: {indian_stock_ticker}
+    
+    ### 1. Conviction Score & Investment Thesis
+    ### 2. Company Profile & Wikipedia History
+    ### 3. Live Fundamentals & Valuation Metrics (₹)
+    ### 4. Technical Analysis & Chart Indicators (RSI, EMAs)
+    ### 5. Estimated Profit & Loss Scenarios (Targets ₹, Stop Loss ₹, Upside %)
+    ### 6. Action Plan with Specific Entry/Exit Strategies and Timelines
+    ### 7. Trading Mentorship & Risk Management Rules
+  agent: indian_investment_advisory_specialist
+  context:
+  - real_time_market_dashboard
+  - fundamental_stock_analysis
+  - technical_analysis_report
