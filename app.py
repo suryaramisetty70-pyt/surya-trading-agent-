@@ -41,6 +41,16 @@ def get_stock_data_route():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/top-stocks', methods=['GET'])
+def get_top_stocks_route():
+    try:
+        from stock_data import get_top_5_stocks
+        top_stocks = get_top_5_stocks()
+        return jsonify({'status': 'success', 'stocks': top_stocks})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/api/analyze', methods=['POST'])
 def analyze_stock():
     payload = request.json or {}

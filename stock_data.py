@@ -1,6 +1,7 @@
 """
 Live Stock Data Engine — Multi-Source & Ultra-Reliable
 Sources: NSE India Official API → Yahoo Finance (info + fast_info + history) → BSE fallback
+Includes chart series extraction & Top 5 Market Leaders endpoint data
 """
 
 import os
@@ -98,6 +99,30 @@ def _compute_technicals(hist: pd.DataFrame) -> dict:
     except Exception:
         pass
     return result
+
+def _extract_chart_data(hist: pd.DataFrame) -> dict:
+    """Extract dates, closes, volumes, and EMA20 for Chart.js interactive rendering."""
+    chart = {"dates": [], "prices": [], "volumes": [], "ema20": []}
+    if hist is None or hist.empty:
+        return chart
+    try:
+        df = hist.tail(90).copy()  # Last 90 trading days for clear clean view
+        df["EMA20"] = df["Close"].ewm(span=20).mean()
+        
+        dates = [idx.strftime("%b %d") for idx in df.index]
+        prices = [round(float(v), 2) for v in df["Close"]]
+        volumes = [int(v) for v in df["Volume"]]
+        ema20 = [round(float(v), 2) for v in df["EMA20"]]
+
+        chart = {
+            "dates": dates,
+            "prices": prices,
+            "volumes": volumes,
+            "ema20": ema20
+        }
+    except Exception as e:
+        print(f"[Chart] Error extracting chart series: {e}")
+    return chart
 
 def get_stock_data(ticker: str) -> dict:
     """
@@ -223,8 +248,9 @@ def get_stock_data(ticker: str) -> dict:
             seen_titles.add(t)
     all_news = all_news[:8]
 
-    # ── Compute technicals ────────────────────────────────────────────────────
+    # ── Compute technicals & chart series ────────────────────────────────────
     techs = _compute_technicals(hist)
+    chart_series = _extract_chart_data(hist)
 
     # ── Extract price history last close as robust fallback ─────────────────
     hist_last_close = 0
@@ -384,9 +410,39 @@ def get_stock_data(ticker: str) -> dict:
         "ema_200": techs["ema_200"],
         "week_52_high": week_high_val,
         "week_52_low": week_low_val,
+        "chart_series": chart_series,
         "raw_output": raw_display,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
     }
+
+
+def get_top_5_stocks() -> list:
+    """Fetch live data summary for Top 5 Indian Market Leaders for homepage table."""
+    top_tickers = [
+        ("RELIANCE", "Reliance Industries"),
+        ("TCS", "Tata Consultancy Services"),
+        ("HDFCBANK", "HDFC Bank"),
+        ("INFY", "Infosys"),
+        ("ICICIBANK", "ICICI Bank"),
+    ]
+    results = []
+    for ticker, name in top_tickers:
+        try:
+            d = get_stock_data(ticker)
+            results.append({
+                "ticker": ticker,
+                "name": d.get("company_name", name),
+                "price": d.get("current_price", 0),
+                "change": d.get("change", 0),
+                "change_pct": d.get("change_pct", 0),
+                "day_high": d.get("day_high", 0),
+                "day_low": d.get("day_low", 0),
+                "sector": d.get("sector", "Indian Equities"),
+                "pe_ratio": d.get("pe_ratio", 0),
+            })
+        except Exception as e:
+            print(f"[Top5] Error fetching {ticker}: {e}")
+    return results
 
 
 def _format_raw_display(**kw) -> str:
