@@ -538,8 +538,12 @@
             <div class="search-row">
                 <div class="input-group">
                     <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="tickerInput" class="input-text" placeholder="Enter NSE Stock Symbol (e.g. RELIANCE, TCS, INFY)" value="RELIANCE">
+                    <input type="text" id="tickerInput" class="input-text" placeholder="Enter Global or Indian Stock Symbol (e.g. AAPL, NVDA, RELIANCE, TCS)" value="RELIANCE" onkeydown="if(event.key==='Enter') fetchLiveStockData()">
                 </div>
+                <button class="btn-primary" style="background: linear-gradient(135deg, #10b981, #059669);" onclick="fetchLiveStockData()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Load Chart & Data
+                </button>
                 <select id="languageSelect" class="select-custom">
                     <option value="English" selected>🌐 English Report</option>
                     <option value="Hindi">🇮🇳 Hindi (हिंदी)</option>
@@ -556,11 +560,11 @@
                 <button class="pill-button" onclick="selectTicker('RELIANCE')">RELIANCE</button>
                 <button class="pill-button" onclick="selectTicker('TCS')">TCS</button>
                 <button class="pill-button" onclick="selectTicker('INFY')">INFY</button>
-                <button class="pill-button" onclick="selectTicker('HDFCBANK')">HDFCBANK</button>
-                <button class="pill-button" onclick="selectTicker('ICICIBANK')">ICICIBANK</button>
-                <button class="pill-button" onclick="selectTicker('TATAMOTORS')">TATAMOTORS</button>
-                <button class="pill-button" onclick="selectTicker('SBIN')">SBIN</button>
-                <button class="pill-button" onclick="selectTicker('BAJFINANCE')">BAJFINANCE</button>
+                <button class="pill-button" onclick="selectTicker('AAPL')">🇺🇸 AAPL</button>
+                <button class="pill-button" onclick="selectTicker('NVDA')">🇺🇸 NVDA</button>
+                <button class="pill-button" onclick="selectTicker('TSLA')">🇺🇸 TSLA</button>
+                <button class="pill-button" onclick="selectTicker('MSFT')">🇺🇸 MSFT</button>
+                <button class="pill-button" onclick="selectTicker('BTC-USD')">🪙 BTC</button>
             </div>
         </div>
 

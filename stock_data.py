@@ -1,7 +1,7 @@
 """
-Live Stock Data Engine — Multi-Source & Ultra-Reliable (Fast Threaded Edition)
-Sources: NSE India Official API → Yahoo Finance (info + fast_info + history) → BSE fallback
-Includes chart series extraction, fast parallel Top 5 grid, and in-memory caching for sub-second speeds.
+Live Stock Data Engine — Global A-to-Z Multi-Source Engine
+Supports: US Stocks (AAPL, NVDA, TSLA), Indian Stocks (RELIANCE, TCS), Crypto (BTC-USD), Commodities
+Sources: Yahoo Finance (fast_info + history + info) → NSE/BSE India API → Google Finance News
 """
 
 import os
@@ -13,22 +13,19 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 
-# In-memory cache to make repeated calls instantaneous (60s TTL)
+# In-memory cache for sub-second speeds (60s TTL)
 DATA_CACHE = {}
 TOP5_CACHE = {"timestamp": 0, "data": []}
 
-# NSE India session (required for cookie-based auth)
 NSE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://www.nseindia.com/",
     "Connection": "keep-alive",
 }
 
 def _get_nse_session():
-    """Create a session with NSE India cookies."""
     session = requests.Session()
     session.headers.update(NSE_HEADERS)
     try:
@@ -38,7 +35,6 @@ def _get_nse_session():
     return session
 
 def _fetch_nse_data(symbol: str) -> dict:
-    """Fetch live data from NSE India official API."""
     try:
         session = _get_nse_session()
         url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol.upper()}"
@@ -50,7 +46,6 @@ def _fetch_nse_data(symbol: str) -> dict:
     return {}
 
 def _fetch_google_finance_news(symbol: str) -> list:
-    """Scrape Google Finance for latest news headlines."""
     headlines = []
     try:
         url = f"https://www.google.com/finance/quote/{symbol.upper()}:NSE"
@@ -74,7 +69,6 @@ def _fetch_google_finance_news(symbol: str) -> list:
     return headlines
 
 def _compute_technicals(hist: pd.DataFrame) -> dict:
-    """Compute RSI and EMAs from price history."""
     result = {"rsi_14": None, "ema_20": None, "ema_50": None, "ema_200": None,
               "week_52_high": None, "week_52_low": None}
     if hist is None or hist.empty or len(hist) < 5:
@@ -105,12 +99,11 @@ def _compute_technicals(hist: pd.DataFrame) -> dict:
     return result
 
 def _extract_chart_data(hist: pd.DataFrame) -> dict:
-    """Extract dates, closes, volumes, and EMA20 for Chart.js interactive rendering."""
     chart = {"dates": [], "prices": [], "volumes": [], "ema20": []}
     if hist is None or hist.empty:
         return chart
     try:
-        df = hist.tail(90).copy()  # Last 90 trading days
+        df = hist.tail(90).copy()
         df["EMA20"] = df["Close"].ewm(span=20).mean()
         
         dates = [idx.strftime("%b %d") for idx in df.index]
@@ -130,17 +123,16 @@ def _extract_chart_data(hist: pd.DataFrame) -> dict:
 
 def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     """
-    Fetch comprehensive live data for an Indian stock.
-    Primary: NSE India API → Yahoo Finance (fast_info + history + info) → BSE fallback
-    Includes 60-second caching for ultra-fast performance.
+    Fetch comprehensive live data for ANY stock worldwide (US, Indian, Crypto, Commodities).
+    Intelligently resolves plain tickers (AAPL, TSLA), NSE tickers (RELIANCE.NS), or BSE tickers.
     """
-    symbol = ticker.upper().replace(".NS", "").replace(".BO", "").strip()
+    raw_input = ticker.strip().upper()
 
     # Check cache first
     now = time.time()
-    if use_cache and symbol in DATA_CACHE:
-        cached_entry = DATA_CACHE[symbol]
-        if now - cached_entry["time"] < 60:  # 60s TTL
+    if use_cache and raw_input in DATA_CACHE:
+        cached_entry = DATA_CACHE[raw_input]
+        if now - cached_entry["time"] < 60:
             return cached_entry["data"]
 
     def safe(val, default=0):
@@ -148,25 +140,32 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
             if val is None:
                 return default
             v = float(val)
-            return v if v == v else default   # NaN check
+            return v if v == v else default
         except (TypeError, ValueError):
             return default
 
-    # Try .NS first, then .BO if needed
-    symbols_to_try = [f"{symbol}.NS", f"{symbol}.BO"]
+    # Intelligently construct symbols to try:
+    # 1. Plain symbol (AAPL, NVDA, TSLA, BTC-USD, RELIANCE.NS if already has extension)
+    # 2. Add .NS extension (NSE India)
+    # 3. Add .BO extension (BSE India)
+    symbols_to_try = []
+    if "." in raw_input or "-" in raw_input:
+        symbols_to_try.append(raw_input)
+    else:
+        symbols_to_try = [raw_input, f"{raw_input}.NS", f"{raw_input}.BO"]
+
     info = {}
     fast_info = {}
     hist = pd.DataFrame()
     yf_news = []
     analyst_data = {}
     quarterly_revenue = []
-    active_symbol = f"{symbol}.NS"
+    resolved_symbol = raw_input
 
     for sym in symbols_to_try:
         try:
             stock = yf.Ticker(sym)
             
-            # Fast info lookup (super fast and resilient)
             try:
                 fi = stock.fast_info
                 fast_info = {
@@ -178,6 +177,7 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
                     "market_cap": safe(fi.market_cap),
                     "year_high": safe(fi.year_high),
                     "year_low": safe(fi.year_low),
+                    "currency": getattr(fi, "currency", "USD"),
                 }
             except Exception:
                 pass
@@ -233,24 +233,21 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
             except Exception:
                 pass
 
-            # If we successfully got price or history, break loop
             if fast_info.get("last_price") or safe(info.get("currentPrice")) or safe(info.get("regularMarketPrice")) or not hist.empty:
-                active_symbol = sym
+                resolved_symbol = sym
                 break
 
         except Exception as e:
             print(f"[Data] yfinance error for {sym}: {e}")
 
-    # ── Source 2: NSE India API (for precise live quote) ─────────────────────
-    nse_data = _fetch_nse_data(symbol)
+    # ── Secondary Source: NSE India API if Indian Stock ───────────────────────
+    nse_data = _fetch_nse_data(raw_input) if resolved_symbol.endswith(".NS") or not "." in resolved_symbol else {}
     nse_price_info = nse_data.get("priceInfo", {})
     nse_meta = nse_data.get("metadata", {})
     nse_industry_info = nse_data.get("industryInfo", {})
 
-    # ── Source 3: Google Finance News ─────────────────────────────────────────
-    google_news = _fetch_google_finance_news(symbol)
-
-    # Merge news (Yahoo + Google, deduplicate)
+    # ── News Merge ────────────────────────────────────────────────────────────
+    google_news = _fetch_google_finance_news(raw_input)
     all_news = []
     seen_titles = set()
     for n in (yf_news + google_news):
@@ -260,11 +257,10 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
             seen_titles.add(t)
     all_news = all_news[:6]
 
-    # ── Compute technicals & chart series ────────────────────────────────────
+    # ── Compute Technicals & Chart Series ─────────────────────────────────────
     techs = _compute_technicals(hist)
     chart_series = _extract_chart_data(hist)
 
-    # ── Extract price history last close as robust fallback ─────────────────
     hist_last_close = 0
     if not hist.empty and "Close" in hist.columns:
         try:
@@ -272,7 +268,6 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         except Exception:
             pass
 
-    # ── Determine final current_price with 5 fallback layers ───────────────
     current_price = (
         safe(nse_price_info.get("lastPrice"))
         or safe(info.get("currentPrice"))
@@ -316,12 +311,12 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         nse_meta.get("companyName")
         or info.get("longName")
         or info.get("shortName")
-        or symbol
+        or raw_input
     )
 
     sector = (
         nse_industry_info.get("sector")
-        or info.get("sector", "Indian Equities")
+        or info.get("sector", "Global Market Asset")
     )
 
     industry = (
@@ -329,18 +324,16 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         or info.get("industry", "Diversified")
     )
 
-    market_cap_val = (
-        safe(info.get("marketCap"))
-        or safe(fast_info.get("market_cap"))
-    )
+    currency = info.get("currency") or fast_info.get("currency") or ("INR" if resolved_symbol.endswith((".NS", ".BO")) else "USD")
+    currency_symbol = "₹" if currency in ["INR", "INR."] else "$"
 
+    market_cap_val = safe(info.get("marketCap")) or safe(fast_info.get("market_cap"))
     week_high_val = techs["week_52_high"] or safe(fast_info.get("year_high")) or current_price
     week_low_val = techs["week_52_low"] or safe(fast_info.get("year_low")) or current_price
 
-    # ── Format the raw display text for the UI ────────────────────────────────
     raw_display = _format_raw_display(
         company_name=company_name,
-        symbol=symbol,
+        symbol=raw_input,
         current_price=current_price,
         prev_close=prev_close,
         open_price=open_price,
@@ -370,14 +363,16 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         target_price=safe(info.get("targetMeanPrice")),
         analyst_rating=info.get("recommendationKey", "N/A"),
         analyst_count=safe(info.get("numberOfAnalystOpinions")),
+        currency_symbol=currency_symbol,
         news=all_news,
         fetch_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
     )
 
     data = {
-        "ticker": symbol,
+        "ticker": raw_input,
         "company_name": company_name,
-        "exchange": "NSE" if active_symbol.endswith(".NS") else "BSE",
+        "exchange": "NSE" if resolved_symbol.endswith(".NS") else ("BSE" if resolved_symbol.endswith(".BO") else "GLOBAL"),
+        "currency_symbol": currency_symbol,
         "current_price": round(current_price, 2),
         "prev_close": round(prev_close, 2),
         "open_price": round(open_price, 2),
@@ -427,13 +422,10 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
     }
 
-    # Save to cache
-    DATA_CACHE[symbol] = {"time": now, "data": data}
+    DATA_CACHE[raw_input] = {"time": now, "data": data}
     return data
 
-
 def _fetch_single_top_quote(ticker: str, name: str) -> dict:
-    """Ultra-fast quote fetcher for a single top 5 stock using fast_info."""
     try:
         stock = yf.Ticker(f"{ticker}.NS")
         fi = stock.fast_info
@@ -455,7 +447,6 @@ def _fetch_single_top_quote(ticker: str, name: str) -> dict:
             "sector": "Indian Equities",
         }
     except Exception:
-        # Fallback to full data fetcher
         d = get_stock_data(ticker)
         return {
             "ticker": ticker,
@@ -468,12 +459,7 @@ def _fetch_single_top_quote(ticker: str, name: str) -> dict:
             "sector": d.get("sector", "Indian Equities"),
         }
 
-
 def get_top_5_stocks() -> list:
-    """
-    Fetch live data summary for Top 5 Indian Market Leaders for homepage table.
-    Uses 5-worker ThreadPoolExecutor + 60s cache for sub-second page loads.
-    """
     global TOP5_CACHE
     now = time.time()
     if now - TOP5_CACHE["timestamp"] < 60 and TOP5_CACHE["data"]:
@@ -496,20 +482,17 @@ def get_top_5_stocks() -> list:
             except Exception as e:
                 print(f"[Top5] Error fetching stock quote: {e}")
 
-    # Maintain original order
     order_map = {t[0]: i for i, t in enumerate(top_tickers)}
     results.sort(key=lambda x: order_map.get(x["ticker"], 99))
 
     TOP5_CACHE = {"timestamp": now, "data": results}
     return results
 
-
 def _format_raw_display(**kw) -> str:
-    """Format live stock data as clean readable text for the UI panel."""
     news = kw.get("news", [])
     news_text = ""
     if news:
-        news_text = "\n\nLATEST NEWS (Google Finance + Yahoo Finance)\n" + "─"*50
+        news_text = "\n\nLATEST NEWS & CATALYSTS\n" + "─"*50
         for i, n in enumerate(news[:5], 1):
             news_text += f"\n{i}. [{n.get('date','')}] {n.get('title','')}"
             if n.get("source"):
@@ -517,42 +500,44 @@ def _format_raw_display(**kw) -> str:
             if n.get("summary"):
                 news_text += f"\n   {n['summary'][:180]}..."
 
+    curr = kw.get("currency_symbol", "₹")
+
     return f"""
 {'='*55}
   LIVE MARKET DATA — {kw['company_name']} ({kw['symbol']})
-  Source: NSE / BSE India + Yahoo Finance + Google Finance
+  Source: Global Market Exchange + Yahoo Finance + Google Finance
   Fetched: {kw['fetch_time']}
 {'='*55}
 
 PRICE INFO
 ----------
-  Current Price : Rs {kw['current_price']:.2f}
-  Previous Close: Rs {kw['prev_close']:.2f}
-  Open          : Rs {kw['open_price']:.2f}
-  Day High      : Rs {kw['day_high']:.2f}
-  Day Low       : Rs {kw['day_low']:.2f}
-  Change        : Rs {kw['change']:.2f} ({kw['change_pct']:.2f}%)
-  52W High      : Rs {kw['week_high']}
-  52W Low       : Rs {kw['week_low']}
+  Current Price : {curr} {kw['current_price']:.2f}
+  Previous Close: {curr} {kw['prev_close']:.2f}
+  Open          : {curr} {kw['open_price']:.2f}
+  Day High      : {curr} {kw['day_high']:.2f}
+  Day Low       : {curr} {kw['day_low']:.2f}
+  Change        : {curr} {kw['change']:.2f} ({kw['change_pct']:.2f}%)
+  52W High      : {curr} {kw['week_high']}
+  52W Low       : {curr} {kw['week_low']}
 
 FUNDAMENTALS
 ------------
-  Market Cap    : Rs {kw['market_cap_cr']:.0f} Crores
+  Market Cap    : {curr} {kw['market_cap_cr']:.0f} Cr / Val
   P/E Ratio     : {kw['pe_ratio']:.2f}
   P/B Ratio     : {kw['pb_ratio']:.2f}
   ROE           : {kw['roe']:.2f}%
   Debt/Equity   : {kw['debt_equity']:.2f}
-  EPS           : Rs {kw['eps']:.2f}
+  EPS           : {curr} {kw['eps']:.2f}
   Dividend Yield: {kw['dividend_yield']:.2f}%
-  Revenue       : Rs {kw['revenue_cr']:.0f} Crores
+  Revenue       : {curr} {kw['revenue_cr']:.0f} Cr
   Profit Margin : {kw['profit_margin']:.2f}%
 
 TECHNICAL INDICATORS
 ---------------------
   RSI (14)      : {kw['rsi']}
-  EMA 20        : Rs {kw['ema20']}
-  EMA 50        : Rs {kw['ema50']}
-  EMA 200       : Rs {kw['ema200']}
+  EMA 20        : {curr} {kw['ema20']}
+  EMA 50        : {curr} {kw['ema50']}
+  EMA 200       : {curr} {kw['ema200']}
   Volume        : {int(kw['volume']):,}
   Avg Volume    : {int(kw['avg_volume']):,}
 
@@ -560,7 +545,7 @@ ANALYST CONSENSUS
 -----------------
   Rating        : {str(kw['analyst_rating']).upper()}
   Analysts      : {int(kw['analyst_count'])}
-  Price Target  : Rs {kw['target_price']:.2f}
+  Price Target  : {curr} {kw['target_price']:.2f}
 
   Sector        : {kw['sector']}
   Industry      : {kw['industry']}
