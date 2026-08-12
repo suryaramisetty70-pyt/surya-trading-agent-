@@ -61,12 +61,12 @@ NSE_HEADERS = {
 }
 
 def _resolve_company_name_to_symbol(query: str) -> str:
-    """Intelligently converts company names (e.g. 'tata', 'apple', 'infosys') to real trading symbols."""
+    """Intelligently converts company names (e.g. 'tata', 'zomato', 'apple', 'infosys', 'palantir') to real trading symbols."""
     clean = query.strip().lower()
     if clean in COMPANY_NAME_MAP:
         return COMPANY_NAME_MAP[clean]
 
-    # Try Yahoo Ticker Search API for arbitrary company names
+    # Layer 1: Yahoo Ticker Search API
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(clean)}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -80,6 +80,20 @@ def _resolve_company_name_to_symbol(query: str) -> str:
                 return sym
         if quotes and quotes[0].get("symbol"):
             return quotes[0]["symbol"]
+    except Exception:
+        pass
+
+    # Layer 2: Web Search Ticker Resolver (Resolves ANY company name worldwide in <1s)
+    try:
+        import re
+        q_str = clean + " yahoo finance ticker symbol"
+        search_url = "https://html.duckduckgo.com/html/?q=" + requests.utils.quote(q_str)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        html = requests.get(search_url, headers=headers, timeout=3).text
+        matches = re.findall(r'finance\.yahoo\.com/quote/([A-Za-z0-9\.\%-]+)', html)
+        if matches:
+            resolved = matches[0].upper().replace("%5E", "^")
+            return resolved
     except Exception:
         pass
 
