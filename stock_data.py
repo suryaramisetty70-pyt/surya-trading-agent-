@@ -1,16 +1,21 @@
 """
-Live Stock Data Engine — Multi-Source & Ultra-Reliable
+Live Stock Data Engine — Multi-Source & Ultra-Reliable (Fast Threaded Edition)
 Sources: NSE India Official API → Yahoo Finance (info + fast_info + history) → BSE fallback
-Includes chart series extraction & Top 5 Market Leaders endpoint data
+Includes chart series extraction, fast parallel Top 5 grid, and in-memory caching for sub-second speeds.
 """
 
 import os
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
+
+# In-memory cache to make repeated calls instantaneous (60s TTL)
+DATA_CACHE = {}
+TOP5_CACHE = {"timestamp": 0, "data": []}
 
 # NSE India session (required for cookie-based auth)
 NSE_HEADERS = {
@@ -27,8 +32,7 @@ def _get_nse_session():
     session = requests.Session()
     session.headers.update(NSE_HEADERS)
     try:
-        session.get("https://www.nseindia.com", timeout=5)
-        time.sleep(0.3)
+        session.get("https://www.nseindia.com", timeout=3)
     except Exception:
         pass
     return session
@@ -38,7 +42,7 @@ def _fetch_nse_data(symbol: str) -> dict:
     try:
         session = _get_nse_session()
         url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol.upper()}"
-        r = session.get(url, timeout=5)
+        r = session.get(url, timeout=3)
         if r.status_code == 200:
             return r.json()
     except Exception:
@@ -53,11 +57,11 @@ def _fetch_google_finance_news(symbol: str) -> list:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         }
-        r = requests.get(url, headers=headers, timeout=5)
+        r = requests.get(url, headers=headers, timeout=3)
         if r.status_code == 200:
             text = r.text
             import re
-            matches = re.findall(r'"([^"]{20,150})"(?=.*?article)', text[:50000])
+            matches = re.findall(r'"([^"]{20,150})"(?=.*?article)', text[:40000])
             seen = set()
             for m in matches[:8]:
                 if m not in seen and not m.startswith("http") and len(m) > 25:
@@ -106,7 +110,7 @@ def _extract_chart_data(hist: pd.DataFrame) -> dict:
     if hist is None or hist.empty:
         return chart
     try:
-        df = hist.tail(90).copy()  # Last 90 trading days for clear clean view
+        df = hist.tail(90).copy()  # Last 90 trading days
         df["EMA20"] = df["Close"].ewm(span=20).mean()
         
         dates = [idx.strftime("%b %d") for idx in df.index]
@@ -124,12 +128,20 @@ def _extract_chart_data(hist: pd.DataFrame) -> dict:
         print(f"[Chart] Error extracting chart series: {e}")
     return chart
 
-def get_stock_data(ticker: str) -> dict:
+def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     """
     Fetch comprehensive live data for an Indian stock.
     Primary: NSE India API → Yahoo Finance (fast_info + history + info) → BSE fallback
+    Includes 60-second caching for ultra-fast performance.
     """
     symbol = ticker.upper().replace(".NS", "").replace(".BO", "").strip()
+
+    # Check cache first
+    now = time.time()
+    if use_cache and symbol in DATA_CACHE:
+        cached_entry = DATA_CACHE[symbol]
+        if now - cached_entry["time"] < 60:  # 60s TTL
+            return cached_entry["data"]
 
     def safe(val, default=0):
         try:
@@ -170,7 +182,7 @@ def get_stock_data(ticker: str) -> dict:
             except Exception:
                 pass
 
-            hist = stock.history(period="1y")
+            hist = stock.history(period="6mo")
             if hist.empty:
                 hist = stock.history(period="1mo")
 
@@ -179,7 +191,7 @@ def get_stock_data(ticker: str) -> dict:
             # News
             try:
                 raw_news = stock.news or []
-                for item in raw_news[:6]:
+                for item in raw_news[:5]:
                     content = item.get("content", {})
                     title = content.get("title") or item.get("title", "")
                     summary = content.get("summary", "")
@@ -246,7 +258,7 @@ def get_stock_data(ticker: str) -> dict:
         if t and t not in seen_titles:
             all_news.append(n)
             seen_titles.add(t)
-    all_news = all_news[:8]
+    all_news = all_news[:6]
 
     # ── Compute technicals & chart series ────────────────────────────────────
     techs = _compute_technicals(hist)
@@ -362,7 +374,7 @@ def get_stock_data(ticker: str) -> dict:
         fetch_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
     )
 
-    return {
+    data = {
         "ticker": symbol,
         "company_name": company_name,
         "exchange": "NSE" if active_symbol.endswith(".NS") else "BSE",
@@ -415,9 +427,58 @@ def get_stock_data(ticker: str) -> dict:
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
     }
 
+    # Save to cache
+    DATA_CACHE[symbol] = {"time": now, "data": data}
+    return data
+
+
+def _fetch_single_top_quote(ticker: str, name: str) -> dict:
+    """Ultra-fast quote fetcher for a single top 5 stock using fast_info."""
+    try:
+        stock = yf.Ticker(f"{ticker}.NS")
+        fi = stock.fast_info
+        last_p = float(fi.last_price or 0)
+        prev_p = float(fi.previous_close or last_p or 1)
+        chg = last_p - prev_p
+        chg_pct = (chg / prev_p * 100) if prev_p else 0
+        day_h = float(fi.day_high or last_p)
+        day_l = float(fi.day_low or last_p)
+
+        return {
+            "ticker": ticker,
+            "name": name,
+            "price": round(last_p, 2),
+            "change": round(chg, 2),
+            "change_pct": round(chg_pct, 2),
+            "day_high": round(day_h, 2),
+            "day_low": round(day_l, 2),
+            "sector": "Indian Equities",
+        }
+    except Exception:
+        # Fallback to full data fetcher
+        d = get_stock_data(ticker)
+        return {
+            "ticker": ticker,
+            "name": d.get("company_name", name),
+            "price": d.get("current_price", 0),
+            "change": d.get("change", 0),
+            "change_pct": d.get("change_pct", 0),
+            "day_high": d.get("day_high", 0),
+            "day_low": d.get("day_low", 0),
+            "sector": d.get("sector", "Indian Equities"),
+        }
+
 
 def get_top_5_stocks() -> list:
-    """Fetch live data summary for Top 5 Indian Market Leaders for homepage table."""
+    """
+    Fetch live data summary for Top 5 Indian Market Leaders for homepage table.
+    Uses 5-worker ThreadPoolExecutor + 60s cache for sub-second page loads.
+    """
+    global TOP5_CACHE
+    now = time.time()
+    if now - TOP5_CACHE["timestamp"] < 60 and TOP5_CACHE["data"]:
+        return TOP5_CACHE["data"]
+
     top_tickers = [
         ("RELIANCE", "Reliance Industries"),
         ("TCS", "Tata Consultancy Services"),
@@ -425,23 +486,21 @@ def get_top_5_stocks() -> list:
         ("INFY", "Infosys"),
         ("ICICIBANK", "ICICI Bank"),
     ]
+
     results = []
-    for ticker, name in top_tickers:
-        try:
-            d = get_stock_data(ticker)
-            results.append({
-                "ticker": ticker,
-                "name": d.get("company_name", name),
-                "price": d.get("current_price", 0),
-                "change": d.get("change", 0),
-                "change_pct": d.get("change_pct", 0),
-                "day_high": d.get("day_high", 0),
-                "day_low": d.get("day_low", 0),
-                "sector": d.get("sector", "Indian Equities"),
-                "pe_ratio": d.get("pe_ratio", 0),
-            })
-        except Exception as e:
-            print(f"[Top5] Error fetching {ticker}: {e}")
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(_fetch_single_top_quote, ticker, name) for ticker, name in top_tickers]
+        for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception as e:
+                print(f"[Top5] Error fetching stock quote: {e}")
+
+    # Maintain original order
+    order_map = {t[0]: i for i, t in enumerate(top_tickers)}
+    results.sort(key=lambda x: order_map.get(x["ticker"], 99))
+
+    TOP5_CACHE = {"timestamp": now, "data": results}
     return results
 
 
