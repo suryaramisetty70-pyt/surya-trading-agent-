@@ -1,5 +1,6 @@
 """
 Live Stock Data Engine — Global A-to-Z Multi-Source Engine
+Supports Company Name Auto-Resolution (e.g., typing 'tata' -> TATAMOTORS.NS, 'apple' -> AAPL)
 Supports: US Stocks (AAPL, NVDA, TSLA), Indian Stocks (RELIANCE, TCS), Crypto (BTC-USD), Commodities
 Sources: Yahoo Finance (fast_info + history + info) → NSE/BSE India API → Google Finance News
 """
@@ -17,6 +18,40 @@ from datetime import datetime
 DATA_CACHE = {}
 TOP5_CACHE = {"timestamp": 0, "data": []}
 
+COMPANY_NAME_MAP = {
+    "tata": "TATASTEEL.NS",
+    "tata steel": "TATASTEEL.NS",
+    "tata power": "TATAPOWER.NS",
+    "tata tech": "TATATECH.NS",
+    "tcs": "TCS.NS",
+    "tata consultancy": "TCS.NS",
+    "reliance": "RELIANCE.NS",
+    "reliance industries": "RELIANCE.NS",
+    "infosys": "INFY.NS",
+    "wipro": "WIPRO.NS",
+    "hdfc": "HDFCBANK.NS",
+    "hdfc bank": "HDFCBANK.NS",
+    "icici": "ICICIBANK.NS",
+    "icici bank": "ICICIBANK.NS",
+    "sbi": "SBIN.NS",
+    "state bank": "SBIN.NS",
+    "l&t": "LT.NS",
+    "larsentoubro": "LT.NS",
+    "adani": "ADANIENT.NS",
+    "adani power": "ADANIPOWER.NS",
+    "apple": "AAPL",
+    "tesla": "TSLA",
+    "nvidia": "NVDA",
+    "microsoft": "MSFT",
+    "google": "GOOGL",
+    "amazon": "AMZN",
+    "meta": "META",
+    "facebook": "META",
+    "btc": "BTC-USD",
+    "bitcoin": "BTC-USD",
+    "eth": "ETH-USD",
+}
+
 NSE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "*/*",
@@ -24,6 +59,31 @@ NSE_HEADERS = {
     "Referer": "https://www.nseindia.com/",
     "Connection": "keep-alive",
 }
+
+def _resolve_company_name_to_symbol(query: str) -> str:
+    """Intelligently converts company names (e.g. 'tata', 'apple', 'infosys') to real trading symbols."""
+    clean = query.strip().lower()
+    if clean in COMPANY_NAME_MAP:
+        return COMPANY_NAME_MAP[clean]
+
+    # Try Yahoo Ticker Search API for arbitrary company names
+    try:
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(clean)}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        r = requests.get(url, headers=headers, timeout=3).json()
+        quotes = r.get("quotes", [])
+        for q in quotes:
+            sym = q.get("symbol")
+            if sym and not sym.startswith("0P") and not "." in sym:
+                return sym
+            if sym and sym.endswith((".NS", ".BO")):
+                return sym
+        if quotes and quotes[0].get("symbol"):
+            return quotes[0]["symbol"]
+    except Exception:
+        pass
+
+    return query.strip().upper()
 
 def _get_nse_session():
     session = requests.Session()
@@ -123,12 +183,12 @@ def _extract_chart_data(hist: pd.DataFrame) -> dict:
 
 def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     """
-    Fetch comprehensive live data for ANY stock worldwide (US, Indian, Crypto, Commodities).
-    Intelligently resolves plain tickers (AAPL, TSLA), NSE tickers (RELIANCE.NS), or BSE tickers.
+    Fetch comprehensive live data for ANY stock or company name worldwide.
+    Resolves company names (e.g. 'tata', 'apple', 'reliance') to real exchange symbols.
     """
-    raw_input = ticker.strip().upper()
+    resolved_ticker = _resolve_company_name_to_symbol(ticker)
+    raw_input = resolved_ticker.upper()
 
-    # Check cache first
     now = time.time()
     if use_cache and raw_input in DATA_CACHE:
         cached_entry = DATA_CACHE[raw_input]
@@ -144,15 +204,11 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         except (TypeError, ValueError):
             return default
 
-    # Intelligently construct symbols to try:
-    # 1. Plain symbol (AAPL, NVDA, TSLA, BTC-USD, RELIANCE.NS if already has extension)
-    # 2. Add .NS extension (NSE India)
-    # 3. Add .BO extension (BSE India)
     symbols_to_try = []
     if "." in raw_input or "-" in raw_input:
-        symbols_to_try.append(raw_input)
+        symbols_to_try = [raw_input]
     else:
-        symbols_to_try = [raw_input, f"{raw_input}.NS", f"{raw_input}.BO"]
+        symbols_to_try = [f"{raw_input}.NS", raw_input, f"{raw_input}.BO"]
 
     info = {}
     fast_info = {}
