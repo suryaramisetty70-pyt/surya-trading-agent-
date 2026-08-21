@@ -24,6 +24,13 @@ load_dotenv(override=False)   # .env won't override what we already set above
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+    return response
+
 
 @app.route('/')
 def index():
