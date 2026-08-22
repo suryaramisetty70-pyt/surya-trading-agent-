@@ -615,7 +615,8 @@ ANALYST CONSENSUS
 -----------------
   Rating        : {str(kw['analyst_rating']).upper()}
   Analysts      : {int(kw['analyst_count'])}
-  Price Target  : {curr} {kw['target_price']:.2f}
+  Price Target  : {curr} {kw['target_price']:.2f}{news_text}
+"""
 
 def get_highest_share_price_stocks() -> list:
     """Fetches real live quotes for India's highest per-share price companies (MRF, Page Industries, Shree Cement, etc)."""
