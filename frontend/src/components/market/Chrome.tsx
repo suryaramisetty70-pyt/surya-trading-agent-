@@ -34,7 +34,19 @@ export function TopBar() {
         </Link>
 
         <div className="relative min-w-[180px] flex-1">
-          <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <button
+            type="button"
+            onClick={() => {
+              if (q.trim()) {
+                const query = q.trim().toUpperCase();
+                navigate({ to: "/stock/$symbol", params: { symbol: query } });
+                setOpen(false);
+              }
+            }}
+            className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground hover:text-primary transition"
+          >
+            <Search className="size-4" />
+          </button>
           <input
             value={q}
             onChange={(e) => {
