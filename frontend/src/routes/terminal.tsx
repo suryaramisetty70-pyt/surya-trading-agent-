@@ -78,6 +78,18 @@ function Terminal() {
 
         {/* Main Content Area */}
         <main className="min-w-0 flex-1 space-y-4 p-4">
+          <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/10 px-4 py-2">
+            <div className="flex items-center gap-2">
+              <span className="size-2 animate-pulse rounded-full bg-primary" />
+              <span className="text-xs font-bold tracking-[0.2em] text-primary uppercase">
+                ACTIVE MODULE: {active}
+              </span>
+            </div>
+            <span className="text-[0.65rem] tracking-wider text-muted-foreground uppercase">
+              100% REAL LIVE DATA INTEGRATED
+            </span>
+          </div>
+
           <TickerTape />
 
           {active === "Dashboard" && <DashboardView />}
