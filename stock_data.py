@@ -617,7 +617,129 @@ ANALYST CONSENSUS
   Analysts      : {int(kw['analyst_count'])}
   Price Target  : {curr} {kw['target_price']:.2f}
 
-  Sector        : {kw['sector']}
-  Industry      : {kw['industry']}
-{news_text}
-""".strip()
+def get_highest_share_price_stocks() -> list:
+    """Fetches real live quotes for India's highest per-share price companies (MRF, Page Industries, Shree Cement, etc)."""
+    high_value_symbols = [
+        {"symbol": "MRF.NS", "name": "MRF Ltd.", "category": "TIRES & RUBBER"},
+        {"symbol": "PAGEIND.NS", "name": "Page Industries Ltd.", "category": "APPAREL"},
+        {"symbol": "SHREECEM.NS", "name": "Shree Cement Ltd.", "category": "CEMENT"},
+        {"symbol": "HONAUT.NS", "name": "Honeywell Automation India", "category": "AUTOMATION"},
+        {"symbol": "3MINDIA.NS", "name": "3M India Ltd.", "category": "DIVERSIFIED"},
+        {"symbol": "BOSCHLTD.NS", "name": "Bosch Ltd.", "category": "AUTO COMPONENTS"},
+        {"symbol": "NESTLEIND.NS", "name": "Nestle India Ltd.", "category": "FMCG"},
+        {"symbol": "ABBOTINDIA.NS", "name": "Abbott India Ltd.", "category": "PHARMA"},
+        {"symbol": "TATAELXSI.NS", "name": "Tata Elxsi Ltd.", "category": "IT DESIGN"}
+    ]
+    results = []
+    for item in high_value_symbols:
+        try:
+            st = yf.Ticker(item["symbol"])
+            fi = st.fast_info
+            price = safe(fi.last_price)
+            prev = safe(fi.previous_close)
+            change = price - prev if (price and prev) else 0
+            change_pct = (change / prev * 100) if prev else 0
+            results.append({
+                "symbol": item["symbol"].replace(".NS", ""),
+                "name": item["name"],
+                "category": item["category"],
+                "price": round(price, 2),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2),
+                "currency": "₹"
+            })
+        except Exception:
+            pass
+    return sorted(results, key=lambda x: x["price"], reverse=True)
+
+
+def get_all_india_indices() -> list:
+    """Fetches real-time quotes for all 16 major Indian market indices."""
+    indices = [
+        {"symbol": "^NSEI", "name": "NIFTY 50", "group": "BENCHMARK"},
+        {"symbol": "^BSESN", "name": "SENSEX", "group": "BENCHMARK"},
+        {"symbol": "^NSEBANK", "name": "BANK NIFTY", "group": "SECTORAL"},
+        {"symbol": "^NMSW", "name": "MIDCAP 100", "group": "BROAD"},
+        {"symbol": "^CNXIT", "name": "NIFTY IT", "group": "SECTORAL"},
+        {"symbol": "^CNXAUTO", "name": "NIFTY AUTO", "group": "SECTORAL"},
+        {"symbol": "^CNXPHARMA", "name": "NIFTY PHARMA", "group": "SECTORAL"},
+        {"symbol": "^CNXFMCG", "name": "NIFTY FMCG", "group": "SECTORAL"},
+        {"symbol": "^CNXMETAL", "name": "NIFTY METAL", "group": "SECTORAL"},
+        {"symbol": "^CNXREALTY", "name": "NIFTY REALTY", "group": "SECTORAL"},
+        {"symbol": "^CNXENERGY", "name": "NIFTY ENERGY", "group": "SECTORAL"},
+        {"symbol": "^INDIAVIX", "name": "INDIA VIX", "group": "VOLATILITY"},
+        {"symbol": "GC=F", "name": "GOLD (MCX)", "group": "COMMODITY"},
+        {"symbol": "SI=F", "name": "SILVER (MCX)", "group": "COMMODITY"},
+        {"symbol": "CL=F", "name": "CRUDE OIL", "group": "COMMODITY"},
+        {"symbol": "USDINR=X", "name": "USD / INR", "group": "CURRENCY"}
+    ]
+    results = []
+    for item in indices:
+        try:
+            st = yf.Ticker(item["symbol"])
+            fi = st.fast_info
+            price = safe(fi.last_price)
+            prev = safe(fi.previous_close)
+            change = price - prev if (price and prev) else 0
+            change_pct = (change / prev * 100) if prev else 0
+            results.append({
+                "symbol": item["name"],
+                "group": item["group"],
+                "price": round(price, 2),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2)
+            })
+        except Exception:
+            pass
+    return results
+
+
+def get_multi_asset_galaxy_nodes() -> list:
+    """Fetches multi-asset commodity and stock nodes with real market colors."""
+    nodes = [
+        # Gold & Precious Metals (Shiny Metallic Gold #f59e0b)
+        {"symbol": "GOLD", "name": "Gold Bullion (MCX)", "asset_class": "Precious Metals", "color": "#f59e0b", "ticker": "GC=F"},
+        {"symbol": "SILVER", "name": "Silver Bullion (MCX)", "asset_class": "Precious Metals", "color": "#e2e8f0", "ticker": "SI=F"},
+
+        # Base Metals & Copper (Copper Amber #d97706)
+        {"symbol": "COPPER", "name": "High Grade Copper", "asset_class": "Base Metals", "color": "#d97706", "ticker": "HG=F"},
+        {"symbol": "TATASTEEL", "name": "Tata Steel Ltd.", "asset_class": "Metals & Mining", "color": "#f97316", "ticker": "TATASTEEL.NS"},
+        {"symbol": "HINDALCO", "name": "Hindalco Industries", "asset_class": "Metals & Mining", "color": "#ea580c", "ticker": "HINDALCO.NS"},
+
+        # Energy & Crude Oil (Crimson Red #ef4444)
+        {"symbol": "CRUDEOIL", "name": "WTI Crude Oil", "asset_class": "Energy", "color": "#ef4444", "ticker": "CL=F"},
+        {"symbol": "RELIANCE", "name": "Reliance Industries", "asset_class": "Energy & Retail", "color": "#dc2626", "ticker": "RELIANCE.NS"},
+
+        # Real Estate (Rose Pink #ec4899)
+        {"symbol": "DLF", "name": "DLF Ltd.", "asset_class": "Real Estate", "color": "#ec4899", "ticker": "DLF.NS"},
+        {"symbol": "GODREJPROP", "name": "Godrej Properties", "asset_class": "Real Estate", "color": "#f43f5e", "ticker": "GODREJPROP.NS"},
+
+        # Technology (Electric Cyan #06b6d4)
+        {"symbol": "TCS", "name": "Tata Consultancy Services", "asset_class": "Technology", "color": "#06b6d4", "ticker": "TCS.NS"},
+        {"symbol": "INFY", "name": "Infosys Ltd.", "asset_class": "Technology", "color": "#0ea5e9", "ticker": "INFY.NS"},
+
+        # Banking & Financials (Royal Blue #3b82f6)
+        {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd.", "asset_class": "Financials", "color": "#3b82f6", "ticker": "HDFCBANK.NS"},
+        {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd.", "asset_class": "Financials", "color": "#2563eb", "ticker": "ICICIBANK.NS"}
+    ]
+    results = []
+    for nd in nodes:
+        try:
+            st = yf.Ticker(nd["ticker"])
+            fi = st.fast_info
+            p = safe(fi.last_price)
+            prev = safe(fi.previous_close)
+            chg = p - prev if (p and prev) else 0
+            chg_pct = (chg / prev * 100) if prev else 0
+            results.append({
+                "symbol": nd["symbol"],
+                "name": nd["name"],
+                "asset_class": nd["asset_class"],
+                "color": nd["color"],
+                "price": round(p, 2),
+                "change_pct": round(chg_pct, 2)
+            })
+        except Exception:
+            pass
+    return results
+

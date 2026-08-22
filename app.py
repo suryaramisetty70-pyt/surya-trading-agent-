@@ -88,6 +88,36 @@ def analyze_stock():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/top-value-stocks', methods=['GET'])
+def get_top_value_stocks_route():
+    try:
+        from stock_data import get_highest_share_price_stocks
+        data = get_highest_share_price_stocks()
+        return jsonify({'status': 'success', 'data': data})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/all-india-indices', methods=['GET'])
+def get_all_india_indices_route():
+    try:
+        from stock_data import get_all_india_indices
+        data = get_all_india_indices()
+        return jsonify({'status': 'success', 'data': data})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/galaxy-nodes', methods=['GET'])
+def get_galaxy_nodes_route():
+    try:
+        from stock_data import get_multi_asset_galaxy_nodes
+        data = get_multi_asset_galaxy_nodes()
+        return jsonify({'status': 'success', 'data': data})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     print(f"\n{'='*55}")

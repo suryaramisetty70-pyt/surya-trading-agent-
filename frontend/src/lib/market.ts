@@ -34,31 +34,33 @@ const seedList: Omit<Quote, "change" | "changePct">[] = [
 ];
 
 export const SECTORS = [
+  "Precious Metals",
+  "Base Metals",
+  "Energy",
+  "Real Estate",
   "Technology",
   "Financials",
   "Healthcare",
   "Consumer Cyclical",
   "Communication",
   "Industrials",
-  "Consumer Defensive",
-  "Energy",
   "Utilities",
-  "Real Estate",
   "Materials",
 ] as const;
 
 export const SECTOR_COLOR: Record<string, string> = {
-  Technology: "oklch(0.78 0.17 150)",
-  Financials: "oklch(0.66 0.2 262)",
-  Healthcare: "oklch(0.78 0.14 195)",
-  "Consumer Cyclical": "oklch(0.8 0.17 140)",
-  Communication: "oklch(0.7 0.18 255)",
-  Industrials: "oklch(0.68 0.19 268)",
-  "Consumer Defensive": "oklch(0.78 0.14 210)",
-  Energy: "oklch(0.62 0.2 25)",
-  Utilities: "oklch(0.62 0.22 300)",
-  "Real Estate": "oklch(0.6 0.22 310)",
-  Materials: "oklch(0.6 0.2 30)",
+  "Precious Metals": "#f59e0b",
+  "Base Metals": "#d97706",
+  "Energy": "#ef4444",
+  "Real Estate": "#ec4899",
+  "Technology": "#06b6d4",
+  "Financials": "#3b82f6",
+  "Healthcare": "#10b981",
+  "Consumer Cyclical": "#22c55e",
+  "Communication": "#8b5cf6",
+  "Industrials": "#38bdf8",
+  "Utilities": "#eab308",
+  "Materials": "#f97316",
 };
 
 function rng(seed: number) {
