@@ -31,7 +31,7 @@ export default function Globe3D({ className = "" }: { className?: string }) {
     ro.observe(canvas);
 
     // fibonacci sphere points
-    const N = 900;
+    const N = 320;
     const pts: { x: number; y: number; z: number; hot: boolean }[] = [];
     for (let i = 0; i < N; i++) {
       const phi = Math.acos(1 - (2 * (i + 0.5)) / N);
@@ -40,10 +40,10 @@ export default function Globe3D({ className = "" }: { className?: string }) {
         x: Math.sin(phi) * Math.cos(theta),
         y: Math.sin(phi) * Math.sin(theta),
         z: Math.cos(phi),
-        hot: i % 23 === 0,
+        hot: i % 19 === 0,
       });
     }
-    const rings = [0.18, -0.35, 0.62, -0.8];
+    const rings = [0.18, -0.35, 0.62];
 
     let t = 0;
     const draw = () => {
@@ -55,14 +55,6 @@ export default function Globe3D({ className = "" }: { className?: string }) {
       const cosT = Math.cos(t);
       const sinT = Math.sin(t);
       const tilt = 0.35;
-
-      // glow core
-      const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.5);
-      g.addColorStop(0, "rgba(56,189,248,0.20)");
-      g.addColorStop(0.5, "rgba(59,130,246,0.07)");
-      g.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
 
       for (const p of pts) {
         const x1 = p.x * cosT - p.z * sinT;
