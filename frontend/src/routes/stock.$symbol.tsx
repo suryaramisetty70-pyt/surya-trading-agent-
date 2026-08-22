@@ -302,9 +302,107 @@ function StockPage() {
                 </div>
               </div>
             </Panel>
+
+            <Panel title="AI Educational Studio (Groq Llama 3.3 70B)">
+              <AiStudioPanel symbol={quote.symbol} name={quote.name} />
+            </Panel>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AiStudioPanel({ symbol, name }: { symbol: string; name: string }) {
+  const [lang, setLang] = useState("English");
+  const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+
+  const runAnalysis = async () => {
+    setLoading(true);
+    setReport(null);
+    try {
+      const res = await fetch("http://localhost:5000/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: symbol, language: lang }),
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setReport(data.master_report);
+      } else {
+        setReport("Error generating report. Please check API connection.");
+      }
+    } catch (e) {
+      setReport("Error connecting to AI Server.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadReportFile = () => {
+    if (!report) return;
+    const element = document.createElement("a");
+    const file = new Blob([report], { type: "text/markdown" });
+    element.href = URL.createObjectURL(file);
+    element.download = `${symbol}_AI_Master_Report.md`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const speakReport = () => {
+    if (!report) return;
+    window.speechSynthesis.cancel();
+    const cleanText = report.replace(/[#*`_]/g, "").substring(0, 1000);
+    const u = new SpeechSynthesisUtterance(cleanText);
+    window.speechSynthesis.speak(u);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <select
+          value={lang}
+          onChange={(e) => setLang(e.target.value)}
+          className="rounded border border-border bg-secondary px-3 py-1.5 text-xs text-foreground outline-none"
+        >
+          <option value="English">🌐 English AI</option>
+          <option value="Hindi">🇮🇳 Hindi (हिंदी)</option>
+          <option value="Telugu">🇮🇳 Telugu (తెలుగు)</option>
+          <option value="Tamil">🇮🇳 Tamil (தமிழ்)</option>
+        </select>
+
+        <button
+          onClick={runAnalysis}
+          disabled={loading}
+          className="rounded bg-primary px-4 py-1.5 text-xs font-bold tracking-wider text-primary-foreground uppercase hover:brightness-110 disabled:opacity-50"
+        >
+          {loading ? "Generating Report..." : "⚡ Generate AI Report"}
+        </button>
+      </div>
+
+      {report && (
+        <div className="space-y-3">
+          <div className="max-h-80 overflow-y-auto rounded border border-border/80 bg-background/80 p-3 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+            {report}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={speakReport}
+              className="flex-1 rounded border border-primary/50 bg-primary/10 py-2 text-[0.68rem] font-bold tracking-wider text-primary uppercase hover:bg-primary/20"
+            >
+              🔊 Audio Listen
+            </button>
+            <button
+              onClick={downloadReportFile}
+              className="flex-1 rounded border border-bull/50 bg-bull/10 py-2 text-[0.68rem] font-bold tracking-wider text-bull uppercase hover:bg-bull/20"
+            >
+              📄 Download Report (.MD / PDF)
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

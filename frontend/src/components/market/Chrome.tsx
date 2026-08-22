@@ -41,13 +41,20 @@ export function TopBar() {
               setQ(e.target.value);
               setOpen(true);
             }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && q.trim()) {
+                const query = q.trim().toUpperCase();
+                navigate({ to: "/stock/$symbol", params: { symbol: query } });
+                setOpen(false);
+              }
+            }}
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
-            placeholder="Search markets, assets, news, or ask anything..."
+            placeholder="Search markets, assets, news, or type company (e.g. Zomato, Reliance, Tesla)..."
             className="w-full rounded-md border border-border bg-secondary/60 py-2 pr-10 pl-9 text-sm outline-none transition focus:border-primary/60 focus:shadow-[var(--glow-cyan)]"
           />
           <kbd className="absolute top-1/2 right-3 -translate-y-1/2 rounded border border-border px-1.5 text-[0.65rem] text-muted-foreground">
-            /
+            ↵
           </kbd>
           {open && results.length > 0 && (
             <ul className="panel absolute top-full left-0 z-50 mt-2 w-full overflow-hidden p-1">
