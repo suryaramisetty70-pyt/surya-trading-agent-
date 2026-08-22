@@ -17,12 +17,17 @@ for _key in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS
     os.environ.pop(_key, None)
 
 # ── Standard imports ──────────────────────────────────────────────────────────
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from dotenv import load_dotenv
 load_dotenv(override=False)   # .env won't override what we already set above
 
 # ── App setup ─────────────────────────────────────────────────────────────────
-app = Flask(__name__, template_folder='templates', static_folder='static')
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
+
+if os.path.exists(FRONTEND_DIST):
+    app = Flask(__name__, static_folder=os.path.join(FRONTEND_DIST, 'assets'))
+else:
+    app = Flask(__name__, template_folder='templates', static_folder='static')
 
 @app.after_request
 def add_cors_headers(response):
@@ -33,8 +38,20 @@ def add_cors_headers(response):
 
 
 @app.route('/')
-def index():
+@app.route('/terminal')
+@app.route('/galaxy')
+@app.route('/stock/<path:sub>')
+def serve_frontend_routes(sub=''):
+    if os.path.exists(FRONTEND_DIST):
+        return send_from_directory(FRONTEND_DIST, 'index.html')
     return render_template('index.html')
+
+
+@app.route('/assets/<path:path>')
+def serve_assets(path):
+    if os.path.exists(FRONTEND_DIST):
+        return send_from_directory(os.path.join(FRONTEND_DIST, 'assets'), path)
+    return jsonify({'error': 'Asset not found'}), 404
 
 
 @app.route('/api/stock-data', methods=['GET'])
