@@ -38,6 +38,7 @@ function StockPage() {
   const { quote } = Route.useLoaderData();
   const [range, setRange] = useState<(typeof RANGES)[number]>("1D");
   const [tab, setTab] = useState("Overview");
+  const [activeControl, setActiveControl] = useState<string | null>(null);
 
   const perf = (seedmul: number) =>
     PERF_COLS.map((_, i) => +(((i + 1) * 1.4 + quote.changePct) * seedmul).toFixed(2));
@@ -93,7 +94,7 @@ function StockPage() {
               key={s}
               onClick={() => setTab(s)}
               className={`rounded px-3 py-2.5 text-left text-[0.68rem] font-semibold tracking-widest uppercase transition ${
-                tab === s ? "bg-primary/12 text-primary" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                tab === s ? "bg-primary/12 text-primary border-l-2 border-primary" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
               }`}
             >
               {s}
@@ -134,11 +135,46 @@ function StockPage() {
                 ))}
                 <span className="mx-2 h-4 w-px bg-border" />
                 {["INDICATORS", "TEMPLATES", "COMPARE"].map((x) => (
-                  <button key={x} className="rounded px-2.5 py-1 text-[0.62rem] tracking-widest text-muted-foreground uppercase hover:text-primary">
+                  <button
+                    key={x}
+                    onClick={() => setActiveControl(activeControl === x ? null : x)}
+                    className={`rounded px-2.5 py-1 text-[0.62rem] tracking-widest uppercase transition ${
+                      activeControl === x ? "bg-primary/20 text-primary font-bold" : "text-muted-foreground hover:text-primary"
+                    }`}
+                  >
                     {x}
                   </button>
                 ))}
               </div>
+
+              {activeControl === "INDICATORS" && (
+                <div className="p-3 bg-secondary/30 border-b border-border text-xs flex flex-wrap gap-3">
+                  <span className="font-bold text-primary">Active Technical Overlays:</span>
+                  <span className="bg-bull/15 text-bull px-2 py-0.5 rounded font-semibold">✓ EMA 20 ({fmt(quote.price * 0.965)})</span>
+                  <span className="bg-primary/15 text-primary px-2 py-0.5 rounded font-semibold">✓ EMA 50 ({fmt(quote.price * 0.93)})</span>
+                  <span className="bg-violet/15 text-violet px-2 py-0.5 rounded font-semibold">✓ EMA 200 ({fmt(quote.price * 0.86)})</span>
+                  <span className="bg-secondary text-foreground px-2 py-0.5 rounded font-semibold">✓ RSI 14 (62.4 Neutral)</span>
+                </div>
+              )}
+
+              {activeControl === "TEMPLATES" && (
+                <div className="p-3 bg-secondary/30 border-b border-border text-xs flex gap-3">
+                  <span className="font-bold text-primary">Chart Style:</span>
+                  <span className="bg-primary text-primary-foreground px-2 py-0.5 rounded font-bold">Candlestick (OHLC)</span>
+                  <span className="bg-secondary text-muted-foreground px-2 py-0.5 rounded">Heikin-Ashi</span>
+                  <span className="bg-secondary text-muted-foreground px-2 py-0.5 rounded">Area Line</span>
+                </div>
+              )}
+
+              {activeControl === "COMPARE" && (
+                <div className="p-3 bg-secondary/30 border-b border-border text-xs flex items-center gap-3">
+                  <span className="font-bold text-primary">Compare {quote.symbol} vs:</span>
+                  <span className="bg-bull/15 text-bull px-2 py-0.5 rounded font-bold">NIFTY 50 (+0.68%)</span>
+                  <span className="bg-secondary text-foreground px-2 py-0.5 rounded font-semibold">TCS (+1.12%)</span>
+                  <span className="bg-secondary text-foreground px-2 py-0.5 rounded font-semibold">INFY (+0.85%)</span>
+                </div>
+              )}
+
               <div className="px-3 pt-3 text-[0.68rem]">
                 <p className="font-semibold">
                   {quote.name} · {range} · {quote.exchange}
@@ -158,39 +194,87 @@ function StockPage() {
               <CandleChart symbol={quote.symbol} base={quote.price} range={range} />
             </section>
 
-            <Panel title="Financial Performance">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-[0.6rem] tracking-widest text-muted-foreground uppercase">
-                      <th className="py-2 text-left font-medium">Series</th>
-                      {PERF_COLS.map((c) => (
-                        <th key={c} className="py-2 text-center font-medium">
-                          {c}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {[
-                      { name: quote.symbol, mul: 1 },
-                      { name: "NIFTY 50", mul: 0.55 },
-                      { name: "RELATIVE", mul: 0.42 },
-                    ].map((row) => (
-                      <tr key={row.name}>
-                        <td className="py-2 font-semibold">{row.name}</td>
-                        {perf(row.mul).map((v, i) => (
-                          <td key={i} className={`num py-2 text-center ${v >= 0 ? "text-bull" : "text-bear"}`}>
-                            {v >= 0 ? "+" : ""}
-                            {v}%
-                          </td>
+            {tab === "Overview" && (
+              <Panel title="Financial Performance">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-[0.6rem] tracking-widest text-muted-foreground uppercase">
+                        <th className="py-2 text-left font-medium">Series</th>
+                        {PERF_COLS.map((c) => (
+                          <th key={c} className="py-2 text-center font-medium">
+                            {c}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {[
+                        { name: quote.symbol, mul: 1 },
+                        { name: "NIFTY 50", mul: 0.55 },
+                        { name: "RELATIVE", mul: 0.42 },
+                      ].map((row) => (
+                        <tr key={row.name}>
+                          <td className="py-2 font-semibold">{row.name}</td>
+                          {perf(row.mul).map((v, i) => (
+                            <td key={i} className={`num py-2 text-center ${v >= 0 ? "text-bull" : "text-bear"}`}>
+                              {v >= 0 ? "+" : ""}
+                              {v}%
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+            )}
+
+            {tab === "Fundamentals" && (
+              <Panel title={`Detailed Financial Statement — ${quote.symbol}`}>
+                <div className="space-y-3 text-xs">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 bg-secondary/30 rounded border border-border">
+                      <p className="text-muted-foreground uppercase text-[0.6rem]">Quarterly Revenue</p>
+                      <p className="num text-base font-bold">₹2,42,100 Cr</p>
+                      <p className="text-bull text-[0.65rem]">+11.4% YoY</p>
+                    </div>
+                    <div className="p-3 bg-secondary/30 rounded border border-border">
+                      <p className="text-muted-foreground uppercase text-[0.6rem]">Net Profit Margin</p>
+                      <p className="num text-base font-bold">8.89%</p>
+                      <p className="text-bull text-[0.65rem]">+0.42% Expansion</p>
+                    </div>
+                    <div className="p-3 bg-secondary/30 rounded border border-border">
+                      <p className="text-muted-foreground uppercase text-[0.6rem]">Free Cash Flow</p>
+                      <p className="num text-base font-bold">₹34,800 Cr</p>
+                      <p className="text-bull text-[0.65rem]">+14.2% YoY</p>
+                    </div>
+                  </div>
+                </div>
+              </Panel>
+            )}
+
+            {tab === "Valuation" && (
+              <Panel title={`Valuation Metrics — ${quote.symbol}`}>
+                <div className="space-y-3 text-xs">
+                  <p className="text-muted-foreground">DCF Intrinsic Fair Value Estimate vs Sector Peers</p>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="p-3 bg-bear/10 rounded border border-bear/30"><p className="text-bear font-bold">BEAR CASE</p><p className="num text-lg font-bold">₹{fmt(quote.price * 0.75, 0)}</p></div>
+                    <div className="p-3 bg-primary/10 rounded border border-primary/30"><p className="text-primary font-bold">BASE CASE</p><p className="num text-lg font-bold">₹{fmt(quote.price * 1.02, 0)}</p></div>
+                    <div className="p-3 bg-bull/10 rounded border border-bull/30"><p className="text-bull font-bold">BULL CASE</p><p className="num text-lg font-bold">₹{fmt(quote.price * 1.31, 0)}</p></div>
+                  </div>
+                </div>
+              </Panel>
+            )}
+
+            {tab !== "Overview" && tab !== "Fundamentals" && tab !== "Valuation" && (
+              <Panel title={`${tab} Module — ${quote.symbol}`}>
+                <div className="p-4 text-xs text-muted-foreground">
+                  <p className="font-bold text-foreground mb-1">Active Section: {tab}</p>
+                  <p>Viewing live technical metrics, analyst models, and market intelligence for {quote.name} ({quote.symbol}).</p>
+                </div>
+              </Panel>
+            )}
           </div>
 
           <div className="space-y-4">
