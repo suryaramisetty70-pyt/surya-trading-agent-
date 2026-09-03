@@ -21,11 +21,12 @@ LANGUAGE_INSTRUCTIONS = {
 }
 
 
-def _call_groq(system: str, prompt: str, api_key: str, max_tokens: int = 2000) -> str:
+def _call_groq(system: str, prompt: str, api_key: str, max_tokens: int = 2000, model: str = MODEL) -> str:
     """Direct Groq API call — no wrappers."""
     client = Groq(api_key=api_key)
+    target_model = model or MODEL
     response = client.chat.completions.create(
-        model=MODEL,
+        model=target_model,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
@@ -244,7 +245,7 @@ Date: {data['fetch_time']}
 
 
 # ── MAIN FUNCTION: Parallel Execution ────────────────────────────────────────
-def analyze_stock(ticker: str, language: str = "English", api_key: str = "") -> dict:
+def analyze_stock(ticker: str, language: str = "English", api_key: str = "", model: str = MODEL) -> dict:
     """
     Runs all 4 AI agents with parallel execution for 3x speed boost.
     Pure Groq SDK — NO CrewAI, NO Google, NO LiteLLM.

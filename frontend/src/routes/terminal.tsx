@@ -39,6 +39,7 @@ export const Route = createFileRoute("/terminal")({
 
 const SIDE = [
   { label: "Dashboard", Icon: LayoutDashboard },
+  { label: "AI Studio", Icon: Sparkles },
   { label: "Markets", Icon: Globe },
   { label: "Watchlist", Icon: Star },
   { label: "Portfolios", Icon: PieChart },
@@ -86,13 +87,14 @@ function Terminal() {
               </span>
             </div>
             <span className="text-[0.65rem] tracking-wider text-muted-foreground uppercase">
-              100% REAL LIVE DATA INTEGRATED
+              100% REAL LIVE DATA & DUAL AI ENGINE
             </span>
           </div>
 
           <TickerTape />
 
           {active === "Dashboard" && <DashboardView />}
+          {active === "AI Studio" && <AiStudioView />}
           {active === "Markets" && <MarketsView />}
           {active === "Watchlist" && <WatchlistView />}
           {active === "Portfolios" && <PortfoliosView />}
@@ -482,6 +484,135 @@ function NewsView() {
 }
 
 /* =========================================================================
+   1.1 AI STUDIO VIEW (DEDICATED AI DASHBOARD)
+   ========================================================================= */
+function AiStudioView() {
+  const [symbol, setSymbol] = useState("RELIANCE");
+  const [lang, setLang] = useState("English");
+  const [model, setModel] = useState("llama-3.3-70b-versatile");
+  const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+
+  const runAiAnalysis = async () => {
+    setLoading(true);
+    setReport(null);
+    const customKey = localStorage.getItem("user_groq_api_key") || "";
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: symbol, language: lang, model, api_key: customKey }),
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setReport(data.master_report);
+      } else {
+        setReport(`AI Error: ${data.message || "Could not generate analysis."}`);
+      }
+    } catch (e) {
+      setReport("Network error connecting to AI Server.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadReportFile = () => {
+    if (!report) return;
+    const element = document.createElement("a");
+    const file = new Blob([report], { type: "text/markdown" });
+    element.href = URL.createObjectURL(file);
+    element.download = `${symbol}_AI_Master_Report.md`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const speakReport = () => {
+    if (!report) return;
+    window.speechSynthesis.cancel();
+    const cleanText = report.replace(/[#*`_]/g, "").substring(0, 1000);
+    const u = new SpeechSynthesisUtterance(cleanText);
+    window.speechSynthesis.speak(u);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Panel title="AI Intelligence Dashboard (Dual Model Engine)">
+        <div className="space-y-4 text-xs">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div>
+              <label className="text-muted-foreground uppercase text-[0.6rem] font-bold">Select Symbol</label>
+              <input
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                className="w-full rounded border border-border bg-secondary p-2 mt-1 uppercase font-bold text-primary"
+                placeholder="e.g. RELIANCE, TCS, ZOMATO"
+              />
+            </div>
+            <div>
+              <label className="text-muted-foreground uppercase text-[0.6rem] font-bold">Language</label>
+              <select
+                value={lang}
+                onChange={(e) => setLang(e.target.value)}
+                className="w-full rounded border border-border bg-secondary p-2 mt-1"
+              >
+                <option value="English">🌐 English AI</option>
+                <option value="Hindi">🇮🇳 Hindi (हिंदी)</option>
+                <option value="Telugu">🇮🇳 Telugu (తెలుగు)</option>
+                <option value="Tamil">🇮🇳 Tamil (தமிழ்)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-muted-foreground uppercase text-[0.6rem] font-bold">AI Model Engine</label>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="w-full rounded border border-border bg-secondary p-2 mt-1 font-mono text-[0.68rem]"
+              >
+                <option value="llama-3.3-70b-versatile">AI 1: Groq Llama 3.3 70B (Institutional)</option>
+                <option value="mixtral-8x7b-32768">AI 2: Groq Mixtral 8x7B (Strategy Engine)</option>
+                <option value="deepseek-r1-distill-llama-70b">AI 3: DeepSeek R1 70B (Deep Reasoning)</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={runAiAnalysis}
+                disabled={loading}
+                className="w-full py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider hover:brightness-110 disabled:opacity-50"
+              >
+                {loading ? "Generating Report..." : "⚡ Run AI Intelligence"}
+              </button>
+            </div>
+          </div>
+
+          {report && (
+            <div className="space-y-3 pt-2">
+              <div className="max-h-96 overflow-y-auto rounded border border-border/80 bg-background/90 p-4 leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono text-[0.72rem]">
+                {report}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={speakReport}
+                  className="flex-1 rounded border border-primary/50 bg-primary/10 py-2.5 font-bold tracking-wider text-primary uppercase hover:bg-primary/20"
+                >
+                  🔊 Audio Listen (Text-to-Speech)
+                </button>
+                <button
+                  onClick={downloadReportFile}
+                  className="flex-1 rounded border border-bull/50 bg-bull/10 py-2.5 font-bold tracking-wider text-bull uppercase hover:bg-bull/20"
+                >
+                  📄 Export Report (.MD / PDF)
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* =========================================================================
    10. EVENTS VIEW
    ========================================================================= */
 function EventsView() {
@@ -505,20 +636,80 @@ function EventsView() {
    11. SETTINGS VIEW
    ========================================================================= */
 function SettingsView() {
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("user_groq_api_key") || "");
+  const [statusMsg, setStatusMsg] = useState("");
+  const [testing, setTesting] = useState(false);
+
+  const saveApiKey = () => {
+    localStorage.setItem("user_groq_api_key", apiKey.trim());
+    setStatusMsg("Saved to local browser storage!");
+    setTimeout(() => setStatusMsg(""), 3000);
+  };
+
+  const testApiKey = async () => {
+    setTesting(true);
+    setStatusMsg("Verifying API key connection...");
+    try {
+      const res = await fetch("/api/ai-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey.trim() }),
+      });
+      const data = await res.json();
+      if (data.online) {
+        setStatusMsg(`🟢 Groq API Key Verified Active! Preview: ${data.active_key_preview}`);
+      } else {
+        setStatusMsg(`🔴 Verification Failed: ${data.message || "Invalid API key or rate limit reached."}`);
+      }
+    } catch (e) {
+      setStatusMsg("🔴 Network error connecting to AI Status endpoint.");
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
-    <Panel title="Terminal Customization & API Preferences">
-      <div className="space-y-4 text-xs max-w-md">
-        <div>
-          <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">AI Model Engine</label>
-          <input value="Groq Llama 3.3 70B (Direct API)" readOnly className="w-full rounded border border-border bg-secondary p-2 mt-1 font-mono" />
+    <Panel title="Terminal Preferences & Custom AI API Configuration">
+      <div className="space-y-4 text-xs max-w-lg">
+        <div className="p-3 bg-primary/10 border border-primary/30 rounded">
+          <p className="font-bold text-primary mb-1">💡 Custom Frontend AI API Key Manager</p>
+          <p className="text-muted-foreground text-[0.68rem]">
+            If backend API rate limits are reached, paste your own free Groq API key here. The application will immediately switch to your custom API key without modifying backend server code!
+          </p>
         </div>
+
         <div>
-          <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">Default Currency</label>
-          <select className="w-full rounded border border-border bg-secondary p-2 mt-1">
-            <option>INR (₹)</option>
-            <option>USD ($)</option>
-          </select>
+          <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">Custom Groq API Key</label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Paste your key: gsk_..."
+            className="w-full rounded border border-border bg-secondary p-2.5 mt-1 font-mono text-foreground"
+          />
         </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={saveApiKey}
+            className="flex-1 py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider"
+          >
+            Save Key
+          </button>
+          <button
+            onClick={testApiKey}
+            disabled={testing}
+            className="flex-1 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider disabled:opacity-50"
+          >
+            {testing ? "Testing..." : "Test API Connection"}
+          </button>
+        </div>
+
+        {statusMsg && (
+          <p className="p-2.5 bg-secondary border border-border rounded font-mono text-[0.68rem] text-center font-bold">
+            {statusMsg}
+          </p>
+        )}
       </div>
     </Panel>
   );

@@ -80,17 +80,19 @@ def analyze_stock():
     payload = request.json or {}
     ticker = payload.get('ticker', 'RELIANCE').strip().upper()
     language = payload.get('language', 'English').strip()
-    api_key = os.environ.get("GROQ_API_KEY", "")
+    model = payload.get('model', 'llama-3.3-70b-versatile').strip()
+    custom_key = payload.get('api_key', '').strip()
+    api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
 
     if not api_key or api_key == "PASTE_YOUR_KEY_HERE":
         return jsonify({
             'status': 'error',
-            'message': 'Groq API key is not set! Please update the GROQ_API_KEY in your .env file.'
+            'message': 'Groq API key is not set! Please enter your API key in Settings.'
         }), 400
 
     try:
         from ai_engine import analyze_stock as run_analysis
-        result = run_analysis(ticker=ticker, language=language, api_key=api_key)
+        result = run_analysis(ticker=ticker, language=language, api_key=api_key, model=model)
         return jsonify({
             'status': 'success',
             'ticker': result['ticker'],
@@ -103,6 +105,37 @@ def analyze_stock():
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/ai-status', methods=['GET', 'POST'])
+def ai_status_route():
+    payload = request.json or {} if request.is_json else {}
+    custom_key = payload.get('api_key', '').strip()
+    api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
+
+    if not api_key:
+        return jsonify({'status': 'error', 'online': False, 'message': 'No API Key configured'})
+
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        res = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=5
+        )
+        return jsonify({
+            'status': 'success',
+            'online': True,
+            'active_key_preview': f"{api_key[:6]}...{api_key[-4:]}",
+            'models': [
+                {'id': 'llama-3.3-70b-versatile', 'name': 'AI 1: Groq Llama 3.3 70B (Ultra-Fast Institutional)'},
+                {'id': 'mixtral-8x7b-32768', 'name': 'AI 2: Groq Mixtral 8x7B (High-Speed Strategy Engine)'},
+                {'id': 'deepseek-r1-distill-llama-70b', 'name': 'AI 3: DeepSeek R1 70B (Deep Reasoning)'}
+            ]
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'online': False, 'message': str(e)})
 
 
 @app.route('/api/top-value-stocks', methods=['GET'])
