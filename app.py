@@ -107,35 +107,59 @@ def analyze_stock():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-@app.route('/api/ai-status', methods=['GET', 'POST'])
-def ai_status_route():
-    payload = request.json or {} if request.is_json else {}
-    custom_key = payload.get('api_key', '').strip()
-    api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
+@app.route('/api/universe/stats', methods=['GET'])
+def get_universe_stats_route():
+    try:
+        from ticker_universe import get_universe_stats
+        stats = get_universe_stats()
+        return jsonify({'status': 'success', 'stats': stats})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
-    if not api_key:
-        return jsonify({'status': 'error', 'online': False, 'message': 'No API Key configured'})
+
+@app.route('/api/universe/refresh', methods=['POST'])
+def refresh_universe_route():
+    try:
+        from ticker_universe import sync_universe
+        res = sync_universe()
+        return jsonify({'status': 'success', 'data': res})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/models/retrain', methods=['POST'])
+def retrain_model_route():
+    try:
+        from ml_pipeline import run_auto_training_job
+        res = run_auto_training_job()
+        return jsonify({'status': 'success', 'data': res})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/models/history', methods=['GET'])
+def get_model_history_route():
+    try:
+        from ml_pipeline import list_all_models
+        res = list_all_models()
+        return jsonify({'status': 'success', 'data': res})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/models/rollback', methods=['POST'])
+def rollback_model_route():
+    payload = request.json or {}
+    target_version = payload.get('target_version', '').strip()
+    if not target_version:
+        return jsonify({'status': 'error', 'message': 'target_version is required'}), 400
 
     try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        res = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=5
-        )
-        return jsonify({
-            'status': 'success',
-            'online': True,
-            'active_key_preview': f"{api_key[:6]}...{api_key[-4:]}",
-            'models': [
-                {'id': 'llama-3.3-70b-versatile', 'name': 'AI 1: Groq Llama 3.3 70B (Ultra-Fast Institutional)'},
-                {'id': 'mixtral-8x7b-32768', 'name': 'AI 2: Groq Mixtral 8x7B (High-Speed Strategy Engine)'},
-                {'id': 'deepseek-r1-distill-llama-70b', 'name': 'AI 3: DeepSeek R1 70B (Deep Reasoning)'}
-            ]
-        })
+        from ml_pipeline import rollback_model
+        res = rollback_model(target_version)
+        return jsonify({'status': 'success', 'data': res})
     except Exception as e:
-        return jsonify({'status': 'error', 'online': False, 'message': str(e)})
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/api/top-value-stocks', methods=['GET'])
