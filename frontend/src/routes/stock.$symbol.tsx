@@ -387,7 +387,7 @@ function StockPage() {
               </div>
             </Panel>
 
-            <Panel title="AI Educational Studio (Groq Llama 3.3 70B)">
+            <Panel title="AI Educational Studio (Groq Institutional AI)">
               <AiStudioPanel symbol={quote.symbol} name={quote.name} />
             </Panel>
           </div>

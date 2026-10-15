@@ -66,6 +66,15 @@ def _resolve_company_name_to_symbol(query: str) -> str:
     if clean in COMPANY_NAME_MAP:
         return COMPANY_NAME_MAP[clean]
 
+    # Layer 0: Check SQLite Ticker Universe (2,500+ NSE/BSE listed equities & aliases)
+    try:
+        from ticker_universe import resolve_symbol
+        u_sym = resolve_symbol(clean)
+        if u_sym and u_sym.upper() != f"{clean.upper()}.NS":
+            return u_sym
+    except Exception:
+        pass
+
     # Layer 1: Yahoo Ticker Search API
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(clean)}"

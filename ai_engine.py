@@ -11,7 +11,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from groq import Groq
 from stock_data import get_stock_data
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "openai/gpt-oss-120b"
+
+MODEL_MAP = {
+    "openai/gpt-oss-120b": "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b": "qwen/qwen3.8-27b",
+    "openai/gpt-oss-20b": "openai/gpt-oss-20b",
+    # Legacy/compatibility aliases auto-mapped to live Groq models
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "mixtral-8x7b-32768": "qwen/qwen3.8-27b",
+    "deepseek-r1-distill-llama-70b": "openai/gpt-oss-120b",
+    "llama-3.1-70b-versatile": "openai/gpt-oss-120b",
+}
 
 LANGUAGE_INSTRUCTIONS = {
     "English": "Write the entire report in clear professional English.",
@@ -22,19 +33,37 @@ LANGUAGE_INSTRUCTIONS = {
 
 
 def _call_groq(system: str, prompt: str, api_key: str, max_tokens: int = 2000, model: str = MODEL) -> str:
-    """Direct Groq API call — no wrappers."""
+    """Direct Groq API call with automatic model mapping and resilient fallback."""
     client = Groq(api_key=api_key)
-    target_model = model or MODEL
-    response = client.chat.completions.create(
-        model=target_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.3,
-        max_tokens=max_tokens,
-    )
-    return response.choices[0].message.content
+    target_model = MODEL_MAP.get(model, model) if model else MODEL
+    
+    try:
+        response = client.chat.completions.create(
+            model=target_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content or ""
+    except Exception as e:
+        print(f"[AI] Model {target_model} call warning: {e}. Attempting fallback to qwen/qwen3.8-27b...")
+        try:
+            fallback_res = client.chat.completions.create(
+                model="qwen/qwen3.8-27b",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                max_tokens=max_tokens,
+            )
+            return fallback_res.choices[0].message.content or ""
+        except Exception as e2:
+            print(f"[AI] Fallback model also failed: {e2}")
+            raise e
 
 
 def _format_news(news_list: list) -> str:

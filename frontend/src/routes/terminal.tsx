@@ -490,7 +490,7 @@ function NewsView() {
 function AiStudioView() {
   const [symbol, setSymbol] = useState("RELIANCE");
   const [lang, setLang] = useState("English");
-  const [model, setModel] = useState("llama-3.3-70b-versatile");
+  const [model, setModel] = useState("openai/gpt-oss-120b");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<string | null>(null);
 
@@ -538,7 +538,7 @@ function AiStudioView() {
 
   return (
     <div className="space-y-4">
-      <Panel title="AI Intelligence Dashboard (Dual Model Engine)">
+      <Panel title="AI Intelligence Dashboard (Multi-Model Engine)">
         <div className="space-y-4 text-xs">
           <div className="grid gap-3 md:grid-cols-4">
             <div>
@@ -570,9 +570,9 @@ function AiStudioView() {
                 onChange={(e) => setModel(e.target.value)}
                 className="w-full rounded border border-border bg-secondary p-2 mt-1 font-mono text-[0.68rem]"
               >
-                <option value="llama-3.3-70b-versatile">AI 1: Groq Llama 3.3 70B (Institutional)</option>
-                <option value="mixtral-8x7b-32768">AI 2: Groq Mixtral 8x7B (Strategy Engine)</option>
-                <option value="deepseek-r1-distill-llama-70b">AI 3: DeepSeek R1 70B (Deep Reasoning)</option>
+                <option value="openai/gpt-oss-120b">AI 1: OpenAI GPT-OSS 120B (Institutional Flagship)</option>
+                <option value="qwen/qwen3.8-27b">AI 2: Qwen 3.8 27B (High-Speed Reasoning)</option>
+                <option value="openai/gpt-oss-20b">AI 3: OpenAI GPT-OSS 20B (Instant Efficiency)</option>
               </select>
             </div>
             <div className="flex items-end">
