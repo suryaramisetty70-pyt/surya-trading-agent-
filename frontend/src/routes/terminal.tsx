@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { usePaperTrading } from "@/lib/paperTrading";
 import {
   LayoutDashboard,
   Sparkles,
@@ -117,13 +118,43 @@ function Terminal() {
    ========================================================================= */
 function DashboardView() {
   const quotes = useLiveQuotes();
-  const gainers = [...quotes].sort((a, b) => b.changePct - a.changePct).slice(0, 5);
+  const [realIndices, setRealIndices] = useState<Array<{ symbol: string; price: number; change_pct: number }>>([]);
+  const [realMovers, setRealMovers] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch("/api/all-india-indices")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.status === "success" && Array.isArray(res.indices) && res.indices.length > 0) {
+          setRealIndices(res.indices);
+        }
+      })
+      .catch((e) => console.error("Error fetching live indices:", e));
+
+    fetch("/api/top-stocks")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.status === "success" && Array.isArray(res.stocks) && res.stocks.length > 0) {
+          setRealMovers(res.stocks);
+        }
+      })
+      .catch((e) => console.error("Error fetching top stocks:", e));
+  }, []);
+
+  const displayIndices = realIndices.length > 0
+    ? realIndices.slice(0, 4).map((i) => ({ symbol: i.symbol, price: i.price, changePct: i.change_pct }))
+    : INDICES.slice(0, 4);
+
+  const gainers = realMovers.length > 0
+    ? realMovers.slice(0, 5).map((m) => ({ symbol: m.ticker || m.symbol, price: m.price, changePct: m.change_pct }))
+    : [...quotes].sort((a, b) => b.changePct - a.changePct).slice(0, 5);
+
   const losers = [...quotes].sort((a, b) => a.changePct - b.changePct).slice(0, 5);
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-        {INDICES.slice(0, 4).map((i) => {
+        {displayIndices.map((i) => {
           const series = candles(i.symbol, 40, i.price).map((c) => c.c);
           return (
             <Panel key={i.symbol} className="p-3">
@@ -133,7 +164,7 @@ function DashboardView() {
               </div>
               <div className="mt-1 flex items-baseline justify-between">
                 <LivePrice value={i.price} className="text-xl font-bold" />
-                <span className="num text-[0.65rem] text-muted-foreground">LIVE</span>
+                <span className="num text-[0.65rem] text-muted-foreground font-semibold">100% LIVE</span>
               </div>
               <div className="mt-2 h-9">
                 <Sparkline data={series} color={i.changePct >= 0 ? "var(--bull)" : "var(--bear)"} />
@@ -296,40 +327,85 @@ function WatchlistView() {
    4. PORTFOLIOS VIEW
    ========================================================================= */
 function PortfoliosView() {
+  const paper = usePaperTrading();
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Panel title="Total Portfolio Value">
-          <p className="num text-2xl font-extrabold text-primary">₹24,85,600 INR</p>
-          <p className="text-xs text-bull mt-1">+₹4,12,300 (+19.8% All-Time)</p>
+          <p className="num text-2xl font-extrabold text-primary">₹{fmt(paper.netPortfolioValue, 2)} INR</p>
+          <p className={`text-xs mt-1 font-semibold ${paper.unrealizedPnL >= 0 ? "text-bull" : "text-bear"}`}>
+            {paper.unrealizedPnL >= 0 ? "+" : ""}₹{fmt(paper.unrealizedPnL, 2)} ({paper.unrealizedPnLPct.toFixed(2)}%)
+          </p>
         </Panel>
-        <Panel title="Day Profit & Loss">
-          <p className="num text-2xl font-extrabold text-bull">+₹18,420 INR</p>
-          <p className="text-xs text-bull mt-1">+0.75% Today</p>
+        <Panel title="Virtual Cash Available">
+          <p className="num text-2xl font-extrabold text-foreground">₹{fmt(paper.cash, 2)} INR</p>
+          <p className="text-xs text-muted-foreground mt-1">Ready to Deploy</p>
         </Panel>
-        <Panel title="Asset Allocation">
-          <p className="text-xs text-muted-foreground">Equity: <strong className="text-foreground">65%</strong> | Cash: <strong className="text-foreground">20%</strong> | Gold: <strong className="text-foreground">15%</strong></p>
+        <Panel title="Invested Capital">
+          <p className="num text-2xl font-extrabold text-chart-1">₹{fmt(paper.totalInvested, 2)} INR</p>
+          <p className="text-xs text-muted-foreground mt-1">Current Stock Holdings</p>
+        </Panel>
+        <Panel title="Reset Simulator">
+          <button
+            onClick={() => {
+              if (window.confirm("Reset your virtual portfolio back to ₹10,00,000 INR?")) {
+                paper.resetPaperPortfolio();
+              }
+            }}
+            className="w-full mt-1 py-2 px-3 rounded bg-secondary hover:bg-destructive/20 hover:text-destructive text-xs font-bold transition"
+          >
+            ↺ Reset Wallet to ₹10L
+          </button>
         </Panel>
       </div>
 
-      <Panel title="Active Holdings Ledger">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border text-[0.68rem] uppercase">
-              <th className="py-2 text-left">Stock</th>
-              <th className="py-2 text-right">Qty</th>
-              <th className="py-2 text-right">Avg Price</th>
-              <th className="py-2 text-right">Current</th>
-              <th className="py-2 text-right">Total Value</th>
-              <th className="py-2 text-right">Unrealized P&L</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
-            <tr><td>RELIANCE</td><td className="text-right num">150</td><td className="text-right num">₹2,420</td><td className="text-right num">₹2,856.45</td><td className="text-right num">₹4,28,467</td><td className="text-right num text-bull font-bold">+₹65,467 (+18.0%)</td></tr>
-            <tr><td>TCS</td><td className="text-right num">80</td><td className="text-right num">₹3,810</td><td className="text-right num">₹4,217.65</td><td className="text-right num">₹3,37,412</td><td className="text-right num text-bull font-bold">+₹32,612 (+10.7%)</td></tr>
-            <tr><td>HDFCBANK</td><td className="text-right num">200</td><td className="text-right num">₹1,520</td><td className="text-right num">₹1,734.50</td><td className="text-right num">₹3,46,900</td><td className="text-right num text-bull font-bold">+₹42,900 (+14.1%)</td></tr>
-          </tbody>
-        </table>
+      <Panel title="Active Paper Holdings Ledger">
+        {paper.positions.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">No active positions yet. Buy stocks using the Orders tab or from any stock analysis page!</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border text-[0.68rem] uppercase">
+                <th className="py-2 text-left">Stock</th>
+                <th className="py-2 text-right">Qty</th>
+                <th className="py-2 text-right">Avg Price</th>
+                <th className="py-2 text-right">Current</th>
+                <th className="py-2 text-right">Total Value</th>
+                <th className="py-2 text-right">Unrealized P&L</th>
+                <th className="py-2 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/50">
+              {paper.positions.map((p) => {
+                const val = p.quantity * p.currentPrice;
+                const cost = p.quantity * p.avgBuyPrice;
+                const pnl = val - cost;
+                const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+                return (
+                  <tr key={p.symbol}>
+                    <td className="py-2 font-bold text-primary">{p.symbol}</td>
+                    <td className="text-right num">{p.quantity}</td>
+                    <td className="text-right num">₹{fmt(p.avgBuyPrice, 2)}</td>
+                    <td className="text-right num">₹{fmt(p.currentPrice, 2)}</td>
+                    <td className="text-right num font-semibold">₹{fmt(val, 2)}</td>
+                    <td className={`text-right num font-bold ${pnl >= 0 ? "text-bull" : "text-bear"}`}>
+                      {pnl >= 0 ? "+" : ""}₹{fmt(pnl, 2)} ({pnl >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
+                    </td>
+                    <td className="text-right">
+                      <button
+                        onClick={() => paper.sellStock(p.symbol, p.currentPrice, p.quantity)}
+                        className="px-2 py-0.5 rounded bg-bear/20 text-bear hover:bg-bear hover:text-white font-bold text-[0.62rem]"
+                      >
+                        SELL ALL
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </Panel>
     </div>
   );
@@ -339,18 +415,27 @@ function PortfoliosView() {
    5. ORDERS VIEW
    ========================================================================= */
 function OrdersView() {
-  const [sym, setSym] = useState("RELIANCE");
+  const paper = usePaperTrading();
+  const [sym, setSym] = useState("TCS");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [qty, setQty] = useState(10);
-  const [msg, setMsg] = useState("");
+  const [price, setPrice] = useState(2350);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const submitOrder = () => {
-    setMsg(`Order Executed: ${side} ${qty} shares of ${sym} @ Market Price!`);
+    if (side === "BUY") {
+      const res = paper.buyStock(sym, sym, price, qty);
+      setMsg({ text: res.message, ok: res.success });
+    } else {
+      const res = paper.sellStock(sym, price, qty);
+      setMsg({ text: res.message, ok: res.success });
+    }
+    setTimeout(() => setMsg(null), 4000);
   };
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <Panel title="Interactive Order Execution Ticket">
+      <Panel title="Interactive Paper Order Execution Ticket">
         <div className="space-y-3 text-xs">
           <div className="flex gap-2">
             <button onClick={() => setSide("BUY")} className={`flex-1 py-2 font-bold rounded ${side === "BUY" ? "bg-bull text-white" : "bg-secondary"}`}>BUY</button>
@@ -362,29 +447,53 @@ function OrdersView() {
             <input value={sym} onChange={(e) => setSym(e.target.value.toUpperCase())} className="w-full rounded border border-border bg-secondary p-2 mt-1" />
           </div>
 
-          <div>
-            <label className="text-muted-foreground uppercase text-[0.62rem]">Quantity</label>
-            <input type="number" value={qty} onChange={(e) => setQty(Number(e.target.value))} className="w-full rounded border border-border bg-secondary p-2 mt-1" />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-muted-foreground uppercase text-[0.62rem]">Execution Price (INR)</label>
+              <input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} className="w-full rounded border border-border bg-secondary p-2 mt-1" />
+            </div>
+            <div>
+              <label className="text-muted-foreground uppercase text-[0.62rem]">Quantity</label>
+              <input type="number" value={qty} onChange={(e) => setQty(Number(e.target.value))} className="w-full rounded border border-border bg-secondary p-2 mt-1" />
+            </div>
           </div>
 
-          <button onClick={submitOrder} className="w-full py-2.5 bg-primary text-primary-foreground font-bold rounded uppercase">
-            Execute Order
+          <div className="flex justify-between items-center text-xs p-2 rounded bg-secondary/50">
+            <span className="text-muted-foreground">Order Value:</span>
+            <span className="font-bold text-foreground">₹{fmt(price * qty, 2)}</span>
+          </div>
+
+          <button onClick={submitOrder} className="w-full py-2.5 bg-primary text-primary-foreground font-bold rounded uppercase hover:brightness-110 transition">
+            Execute Paper Order
           </button>
 
-          {msg && <p className="p-2 bg-bull/15 text-bull rounded text-center font-bold">{msg}</p>}
+          {msg && (
+            <p className={`p-2 rounded text-center font-bold ${msg.ok ? "bg-bull/15 text-bull border border-bull/30" : "bg-bear/15 text-bear border border-bear/30"}`}>
+              {msg.text}
+            </p>
+          )}
         </div>
       </Panel>
 
-      <Panel title="Execution Log">
-        <div className="space-y-2 text-xs">
-          <div className="p-2 border border-border/60 rounded flex justify-between">
-            <span>BUY 50 RELIANCE @ ₹2,840</span>
-            <span className="text-bull font-bold">FILLED</span>
-          </div>
-          <div className="p-2 border border-border/60 rounded flex justify-between">
-            <span>BUY 20 TCS @ ₹4,180</span>
-            <span className="text-bull font-bold">FILLED</span>
-          </div>
+      <Panel title="Live Paper Execution Log">
+        <div className="space-y-2 text-xs max-h-96 overflow-y-auto">
+          {paper.trades.length === 0 ? (
+            <p className="text-muted-foreground text-center py-6">No trades executed yet in this session.</p>
+          ) : (
+            paper.trades.map((t) => (
+              <div key={t.id} className="p-2.5 border border-border/60 rounded flex justify-between items-center bg-secondary/20">
+                <div>
+                  <span className={`font-bold mr-2 ${t.type === "BUY" ? "text-bull" : "text-bear"}`}>{t.type}</span>
+                  <span className="font-semibold text-foreground">{t.quantity} {t.symbol}</span>
+                  <span className="text-muted-foreground text-[0.65rem] block">{t.timestamp}</span>
+                </div>
+                <div className="text-right">
+                  <p className="num font-bold">₹{fmt(t.total, 2)}</p>
+                  <span className="text-bull text-[0.62rem] font-bold">FILLED</span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </Panel>
     </div>
@@ -395,24 +504,46 @@ function OrdersView() {
    6. POSITIONS VIEW
    ========================================================================= */
 function PositionsView() {
+  const paper = usePaperTrading();
+
   return (
-    <Panel title="Open Derivative & Equity Positions">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-muted-foreground border-b border-border text-[0.68rem] uppercase">
-            <th className="py-2 text-left">Instrument</th>
-            <th className="py-2 text-right">Type</th>
-            <th className="py-2 text-right">Qty</th>
-            <th className="py-2 text-right">Entry</th>
-            <th className="py-2 text-right">LTP</th>
-            <th className="py-2 text-right">Unrealized P&L</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/50">
-          <tr><td>NIFTY 24800 CE</td><td className="text-right text-bull font-bold">CALL</td><td className="text-right num">100</td><td className="text-right num">₹125.40</td><td className="text-right num">₹148.20</td><td className="text-right num text-bull font-bold">+₹2,280 (+18.1%)</td></tr>
-          <tr><td>RELIANCE FUT</td><td className="text-right text-bull font-bold">LONG</td><td className="text-right num">250</td><td className="text-right num">₹2,810.00</td><td className="text-right num">₹2,856.45</td><td className="text-right num text-bull font-bold">+₹11,612 (+1.6%)</td></tr>
-        </tbody>
-      </table>
+    <Panel title="Live Virtual Positions & Exposure">
+      {paper.positions.length === 0 ? (
+        <p className="text-xs text-muted-foreground py-6 text-center">No open positions. Use the Orders view or Buy directly from stock pages to build your portfolio!</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-muted-foreground border-b border-border text-[0.68rem] uppercase">
+              <th className="py-2 text-left">Instrument</th>
+              <th className="py-2 text-right">Qty</th>
+              <th className="py-2 text-right">Avg Entry</th>
+              <th className="py-2 text-right">LTP (Market)</th>
+              <th className="py-2 text-right">Total Invested</th>
+              <th className="py-2 text-right">Unrealized P&L</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {paper.positions.map((pos) => {
+              const val = pos.quantity * pos.currentPrice;
+              const cost = pos.quantity * pos.avgBuyPrice;
+              const pnl = val - cost;
+              const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+              return (
+                <tr key={pos.symbol}>
+                  <td className="py-2.5 font-bold text-primary">{pos.symbol} <span className="text-muted-foreground font-normal text-[0.65rem]">({pos.name})</span></td>
+                  <td className="text-right num font-semibold">{pos.quantity}</td>
+                  <td className="text-right num">₹{fmt(pos.avgBuyPrice, 2)}</td>
+                  <td className="text-right num">₹{fmt(pos.currentPrice, 2)}</td>
+                  <td className="text-right num">₹{fmt(cost, 2)}</td>
+                  <td className={`text-right num font-bold ${pnl >= 0 ? "text-bull" : "text-bear"}`}>
+                    {pnl >= 0 ? "+" : ""}₹{fmt(pnl, 2)} ({pnl >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </Panel>
   );
 }

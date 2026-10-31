@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState, useEffect } from "react";
 import { ArrowRight, Sparkles, Cpu, Landmark, HeartPulse, ShoppingCart, Wifi, Droplet, Zap, Cog } from "lucide-react";
 import { TopBar, TickerTape, WatchlistPanel } from "@/components/market/Chrome";
 import { Delta, Gauge, LivePrice, Panel, Sparkline } from "@/components/market/primitives";
@@ -38,7 +38,23 @@ const SECTOR_TAGS = [
 
 function Home() {
   const quotes = useLiveQuotes();
-  const nifty = useMemo(() => candles("NIFTY", 60, 24834.85).map((c) => c.c), []);
+  const [niftyData, setNiftyData] = useState<{ price: number; changePct: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/all-india-indices")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.status === "success" && Array.isArray(res.indices)) {
+          const n = res.indices.find((x: any) => x.symbol === "NIFTY 50");
+          if (n) setNiftyData({ price: n.price, changePct: n.change_pct });
+        }
+      })
+      .catch((e) => console.error("Error fetching live Nifty:", e));
+  }, []);
+
+  const niftyPrice = niftyData?.price ?? 24834.85;
+  const niftyChange = niftyData?.changePct ?? 0.68;
+  const nifty = useMemo(() => candles("NIFTY", 60, niftyPrice).map((c) => c.c), [niftyPrice]);
   const [tab, setTab] = useState<"GAINERS" | "LOSERS" | "ACTIVE">("GAINERS");
 
   const movers = [...quotes].sort((a, b) =>
@@ -178,10 +194,10 @@ function Home() {
         <section className="grid gap-4 xl:grid-cols-5">
           <Panel title="Market Overview" className="xl:col-span-1">
             <div className="mb-2 flex items-baseline justify-between">
-              <span className="text-xs text-muted-foreground">NIFTY 50</span>
+              <span className="text-xs text-muted-foreground font-semibold">NIFTY 50 (LIVE)</span>
               <div className="text-right">
-                <LivePrice value={24834.85} className="text-sm text-primary" />
-                <Delta value={0.68} className="ml-2" />
+                <LivePrice value={niftyPrice} className="text-sm text-primary font-bold" />
+                <Delta value={niftyChange} className="ml-2" />
               </div>
             </div>
             <div className="h-32">

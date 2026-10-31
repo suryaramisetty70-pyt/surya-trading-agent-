@@ -17,6 +17,17 @@ from datetime import datetime
 # In-memory cache for sub-second speeds (60s TTL)
 DATA_CACHE = {}
 TOP5_CACHE = {"timestamp": 0, "data": []}
+INDICES_CACHE = {"time": 0, "data": []}
+HIGH_VALUE_CACHE = {"time": 0, "data": []}
+
+def safe(val, default=0):
+    try:
+        if val is None:
+            return default
+        v = float(val)
+        return v if v == v else default
+    except (TypeError, ValueError):
+        return default
 
 COMPANY_NAME_MAP = {
     "tata": "TATASTEEL.NS",
@@ -182,7 +193,7 @@ def _compute_technicals(hist: pd.DataFrame) -> dict:
     return result
 
 def _extract_chart_data(hist: pd.DataFrame) -> dict:
-    chart = {"dates": [], "prices": [], "volumes": [], "ema20": []}
+    chart = {"dates": [], "prices": [], "volumes": [], "ema20": [], "candles": []}
     if hist is None or hist.empty:
         return chart
     try:
@@ -194,11 +205,29 @@ def _extract_chart_data(hist: pd.DataFrame) -> dict:
         volumes = [int(v) for v in df["Volume"]]
         ema20 = [round(float(v), 2) for v in df["EMA20"]]
 
+        candle_list = []
+        for i, (idx, row) in enumerate(df.iterrows()):
+            o_val = safe(row.get("Open", row["Close"]))
+            h_val = safe(row.get("High", row["Close"]))
+            l_val = safe(row.get("Low", row["Close"]))
+            c_val = safe(row["Close"])
+            v_val = safe(row.get("Volume", 0))
+            candle_list.append({
+                "i": i,
+                "date": idx.strftime("%b %d"),
+                "o": round(o_val, 2),
+                "h": round(h_val, 2),
+                "l": round(l_val, 2),
+                "c": round(c_val, 2),
+                "v": int(v_val),
+            })
+
         chart = {
             "dates": dates,
             "prices": prices,
             "volumes": volumes,
-            "ema20": ema20
+            "ema20": ema20,
+            "candles": candle_list
         }
     except Exception as e:
         print(f"[Chart] Error extracting chart series: {e}")
@@ -628,7 +657,11 @@ ANALYST CONSENSUS
 """
 
 def get_highest_share_price_stocks() -> list:
-    """Fetches real live quotes for India's highest per-share price companies (MRF, Page Industries, Shree Cement, etc)."""
+    """Fetches real live quotes for India's highest per-share price companies (MRF, Page Industries, Shree Cement, etc). Cached for 60s."""
+    now = time.time()
+    if HIGH_VALUE_CACHE["data"] and (now - HIGH_VALUE_CACHE["time"] < 60):
+        return HIGH_VALUE_CACHE["data"]
+
     high_value_symbols = [
         {"symbol": "MRF.NS", "name": "MRF Ltd.", "category": "TIRES & RUBBER"},
         {"symbol": "PAGEIND.NS", "name": "Page Industries Ltd.", "category": "APPAREL"},
@@ -640,8 +673,8 @@ def get_highest_share_price_stocks() -> list:
         {"symbol": "ABBOTINDIA.NS", "name": "Abbott India Ltd.", "category": "PHARMA"},
         {"symbol": "TATAELXSI.NS", "name": "Tata Elxsi Ltd.", "category": "IT DESIGN"}
     ]
-    results = []
-    for item in high_value_symbols:
+
+    def _fetch_one(item):
         try:
             st = yf.Ticker(item["symbol"])
             fi = st.fast_info
@@ -649,27 +682,46 @@ def get_highest_share_price_stocks() -> list:
             prev = safe(fi.previous_close)
             change = price - prev if (price and prev) else 0
             change_pct = (change / prev * 100) if prev else 0
-            results.append({
-                "symbol": item["symbol"].replace(".NS", ""),
-                "name": item["name"],
-                "category": item["category"],
-                "price": round(price, 2),
-                "change": round(change, 2),
-                "change_pct": round(change_pct, 2),
-                "currency": "₹"
-            })
+            if price > 0:
+                return {
+                    "symbol": item["symbol"].replace(".NS", ""),
+                    "name": item["name"],
+                    "category": item["category"],
+                    "price": round(price, 2),
+                    "change": round(change, 2),
+                    "change_pct": round(change_pct, 2),
+                    "currency": "₹"
+                }
         except Exception:
             pass
-    return sorted(results, key=lambda x: x["price"], reverse=True)
+        return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = [ex.submit(_fetch_one, it) for it in high_value_symbols]
+        for f in as_completed(futures):
+            res = f.result()
+            if res:
+                results.append(res)
+
+    results = sorted(results, key=lambda x: x["price"], reverse=True)
+    if results:
+        HIGH_VALUE_CACHE["data"] = results
+        HIGH_VALUE_CACHE["time"] = now
+    return results if results else HIGH_VALUE_CACHE.get("data", [])
 
 
 def get_all_india_indices() -> list:
-    """Fetches real-time quotes for all 16 major Indian market indices."""
+    """Fetches real-time quotes for all major Indian market indices in parallel. Cached for 45s."""
+    now = time.time()
+    if INDICES_CACHE["data"] and (now - INDICES_CACHE["time"] < 45):
+        return INDICES_CACHE["data"]
+
     indices = [
         {"symbol": "^NSEI", "name": "NIFTY 50", "group": "BENCHMARK"},
         {"symbol": "^BSESN", "name": "SENSEX", "group": "BENCHMARK"},
         {"symbol": "^NSEBANK", "name": "BANK NIFTY", "group": "SECTORAL"},
-        {"symbol": "^NMSW", "name": "MIDCAP 100", "group": "BROAD"},
+        {"symbol": "NIFTY_MIDCAP_100.NS", "name": "MIDCAP 100", "group": "BROAD"},
         {"symbol": "^CNXIT", "name": "NIFTY IT", "group": "SECTORAL"},
         {"symbol": "^CNXAUTO", "name": "NIFTY AUTO", "group": "SECTORAL"},
         {"symbol": "^CNXPHARMA", "name": "NIFTY PHARMA", "group": "SECTORAL"},
@@ -683,8 +735,8 @@ def get_all_india_indices() -> list:
         {"symbol": "CL=F", "name": "CRUDE OIL", "group": "COMMODITY"},
         {"symbol": "USDINR=X", "name": "USD / INR", "group": "CURRENCY"}
     ]
-    results = []
-    for item in indices:
+
+    def _fetch_idx(item):
         try:
             st = yf.Ticker(item["symbol"])
             fi = st.fast_info
@@ -692,48 +744,55 @@ def get_all_india_indices() -> list:
             prev = safe(fi.previous_close)
             change = price - prev if (price and prev) else 0
             change_pct = (change / prev * 100) if prev else 0
-            results.append({
-                "symbol": item["name"],
-                "group": item["group"],
-                "price": round(price, 2),
-                "change": round(change, 2),
-                "change_pct": round(change_pct, 2)
-            })
+            if price > 0:
+                return {
+                    "symbol": item["name"],
+                    "group": item["group"],
+                    "price": round(price, 2),
+                    "change": round(change, 2),
+                    "change_pct": round(change_pct, 2)
+                }
         except Exception:
             pass
-    return results
+        return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(_fetch_idx, it): it for it in indices}
+        for f in as_completed(futures):
+            res = f.result()
+            if res:
+                results.append(res)
+
+    # Sort results in predictable original order
+    order_map = {it["name"]: idx for idx, it in enumerate(indices)}
+    results.sort(key=lambda x: order_map.get(x["symbol"], 999))
+
+    if results:
+        INDICES_CACHE["data"] = results
+        INDICES_CACHE["time"] = now
+    return results if results else INDICES_CACHE.get("data", [])
 
 
 def get_multi_asset_galaxy_nodes() -> list:
-    """Fetches multi-asset commodity and stock nodes with real market colors."""
+    """Fetches multi-asset commodity and stock nodes with real market colors in parallel."""
     nodes = [
-        # Gold & Precious Metals (Shiny Metallic Gold #f59e0b)
         {"symbol": "GOLD", "name": "Gold Bullion (MCX)", "asset_class": "Precious Metals", "color": "#f59e0b", "ticker": "GC=F"},
         {"symbol": "SILVER", "name": "Silver Bullion (MCX)", "asset_class": "Precious Metals", "color": "#e2e8f0", "ticker": "SI=F"},
-
-        # Base Metals & Copper (Copper Amber #d97706)
         {"symbol": "COPPER", "name": "High Grade Copper", "asset_class": "Base Metals", "color": "#d97706", "ticker": "HG=F"},
         {"symbol": "TATASTEEL", "name": "Tata Steel Ltd.", "asset_class": "Metals & Mining", "color": "#f97316", "ticker": "TATASTEEL.NS"},
         {"symbol": "HINDALCO", "name": "Hindalco Industries", "asset_class": "Metals & Mining", "color": "#ea580c", "ticker": "HINDALCO.NS"},
-
-        # Energy & Crude Oil (Crimson Red #ef4444)
         {"symbol": "CRUDEOIL", "name": "WTI Crude Oil", "asset_class": "Energy", "color": "#ef4444", "ticker": "CL=F"},
         {"symbol": "RELIANCE", "name": "Reliance Industries", "asset_class": "Energy & Retail", "color": "#dc2626", "ticker": "RELIANCE.NS"},
-
-        # Real Estate (Rose Pink #ec4899)
         {"symbol": "DLF", "name": "DLF Ltd.", "asset_class": "Real Estate", "color": "#ec4899", "ticker": "DLF.NS"},
         {"symbol": "GODREJPROP", "name": "Godrej Properties", "asset_class": "Real Estate", "color": "#f43f5e", "ticker": "GODREJPROP.NS"},
-
-        # Technology (Electric Cyan #06b6d4)
         {"symbol": "TCS", "name": "Tata Consultancy Services", "asset_class": "Technology", "color": "#06b6d4", "ticker": "TCS.NS"},
         {"symbol": "INFY", "name": "Infosys Ltd.", "asset_class": "Technology", "color": "#0ea5e9", "ticker": "INFY.NS"},
-
-        # Banking & Financials (Royal Blue #3b82f6)
         {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd.", "asset_class": "Financials", "color": "#3b82f6", "ticker": "HDFCBANK.NS"},
         {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd.", "asset_class": "Financials", "color": "#2563eb", "ticker": "ICICIBANK.NS"}
     ]
-    results = []
-    for nd in nodes:
+
+    def _fetch_node(nd):
         try:
             st = yf.Ticker(nd["ticker"])
             fi = st.fast_info
@@ -741,15 +800,25 @@ def get_multi_asset_galaxy_nodes() -> list:
             prev = safe(fi.previous_close)
             chg = p - prev if (p and prev) else 0
             chg_pct = (chg / prev * 100) if prev else 0
-            results.append({
-                "symbol": nd["symbol"],
-                "name": nd["name"],
-                "asset_class": nd["asset_class"],
-                "color": nd["color"],
-                "price": round(p, 2),
-                "change_pct": round(chg_pct, 2)
-            })
+            if p > 0:
+                return {
+                    "symbol": nd["symbol"],
+                    "name": nd["name"],
+                    "asset_class": nd["asset_class"],
+                    "color": nd["color"],
+                    "price": round(p, 2),
+                    "change_pct": round(chg_pct, 2)
+                }
         except Exception:
             pass
+        return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = [ex.submit(_fetch_node, nd) for nd in nodes]
+        for f in as_completed(futures):
+            res = f.result()
+            if res:
+                results.append(res)
     return results
 

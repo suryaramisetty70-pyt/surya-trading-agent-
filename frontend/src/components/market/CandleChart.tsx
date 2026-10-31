@@ -1,19 +1,26 @@
 import { useMemo, useState } from "react";
 import { candles, ema, fmt } from "@/lib/market";
 
-type C = ReturnType<typeof candles>[number];
+type CandleItem = { i: number; o: number; h: number; l: number; c: number; v: number; date?: string };
 
 export default function CandleChart({
   symbol,
   base,
   range = "1D",
+  candlesData,
 }: {
   symbol: string;
   base: number;
   range?: string;
+  candlesData?: CandleItem[];
 }) {
   const count = { "1D": 60, "5D": 80, "1M": 110, "3M": 140, "6M": 170, "1Y": 200, "5Y": 240, MAX: 260 }[range] ?? 120;
-  const data = useMemo(() => candles(symbol, count, base), [symbol, count, base]);
+  const data = useMemo(() => {
+    if (candlesData && candlesData.length > 5) {
+      return candlesData;
+    }
+    return candles(symbol, count, base);
+  }, [symbol, count, base, candlesData]);
   const [hover, setHover] = useState<number | null>(null);
 
   const W = 1000;
@@ -33,7 +40,7 @@ export default function CandleChart({
   const line = (vals: number[]) =>
     vals.map((v, i) => `${i ? "L" : "M"}${(pad.l + i * cw + cw / 2).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
   const maxV = Math.max(...data.map((d) => d.v));
-  const active: C | undefined = hover != null ? data[hover] : undefined;
+  const active: CandleItem | undefined = hover != null ? data[hover] : undefined;
   const last = data[data.length - 1]!;
 
   return (
