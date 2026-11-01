@@ -2,17 +2,20 @@ import { useMemo, useState } from "react";
 import { candles, ema, fmt } from "@/lib/market";
 
 type CandleItem = { i: number; o: number; h: number; l: number; c: number; v: number; date?: string };
+export type ProjectionItem = { day: number; label: string; expected: number; upper: number; lower: number };
 
 export default function CandleChart({
   symbol,
   base,
   range = "1D",
   candlesData,
+  projectionData,
 }: {
   symbol: string;
   base: number;
   range?: string;
   candlesData?: CandleItem[];
+  projectionData?: ProjectionItem[];
 }) {
   const count = { "1D": 60, "5D": 80, "1M": 110, "3M": 140, "6M": 170, "1Y": 200, "5Y": 240, MAX: 260 }[range] ?? 120;
   const data = useMemo(() => {
@@ -27,8 +30,12 @@ export default function CandleChart({
   const H = 420;
   const VH = 90;
   const pad = { l: 8, r: 74, t: 12, b: 8 };
-  const hi = Math.max(...data.map((d) => d.h));
-  const lo = Math.min(...data.map((d) => d.l));
+
+  const projPoints = projectionData || [];
+  const allHighs = [...data.map((d) => d.h), ...projPoints.map((p) => p.upper)];
+  const allLows = [...data.map((d) => d.l), ...projPoints.map((p) => p.lower)];
+  const hi = Math.max(...allHighs);
+  const lo = Math.min(...allLows);
   const span = hi - lo || 1;
   const iw = W - pad.l - pad.r;
   const cw = iw / data.length;
@@ -100,6 +107,36 @@ export default function CandleChart({
             {fmt(last.c, 2)}
           </text>
         </g>
+
+        {/* ML 5-Day Forward Projection Cone */}
+        {projPoints.length > 0 && (() => {
+          const x0 = pad.l + (data.length - 1) * cw + cw / 2;
+          const y0 = y(last.c);
+          const upperPath = projPoints.map((p, i) => `${i === 0 ? "M" + x0 + "," + y0 + " L" : "L"}${(x0 + p.day * (cw * 2.2)).toFixed(1)},${y(p.upper).toFixed(1)}`).join(" ");
+          const lowerPathRev = [...projPoints].reverse().map((p) => `L${(x0 + p.day * (cw * 2.2)).toFixed(1)},${y(p.lower).toFixed(1)}`).join(" ");
+          const conePolygon = `${upperPath} ${lowerPathRev} Z`;
+          const expectedLine = `${"M" + x0 + "," + y0} ` + projPoints.map((p) => `L${(x0 + p.day * (cw * 2.2)).toFixed(1)},${y(p.expected).toFixed(1)}`).join(" ");
+          const lastProj = projPoints[projPoints.length - 1]!;
+          const xEnd = x0 + lastProj.day * (cw * 2.2);
+
+          return (
+            <g>
+              <defs>
+                <linearGradient id="mlConeGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.05" />
+                </linearGradient>
+              </defs>
+              <path d={conePolygon} fill="url(#mlConeGrad)" stroke="var(--primary)" strokeDasharray="2 3" strokeWidth="1" opacity="0.6" />
+              <path d={expectedLine} fill="none" stroke="var(--primary)" strokeDasharray="4 3" strokeWidth="2" />
+              <circle cx={xEnd} cy={y(lastProj.expected)} r="4" fill="var(--primary)" />
+              <rect x={Math.min(W - 130, xEnd + 6)} y={y(lastProj.expected) - 10} width="96" height="20" rx="3" fill="var(--primary)" />
+              <text x={Math.min(W - 130, xEnd + 6) + 4} y={y(lastProj.expected) + 4} fontSize="10" fontWeight="bold" fill="#04120c">
+                ML T+5d: ₹{fmt(lastProj.expected, 0)}
+              </text>
+            </g>
+          );
+        })()}
 
         {hover != null && active && (
           <g>

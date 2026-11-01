@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { usePaperTrading } from "@/lib/paperTrading";
+import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
 import {
   LayoutDashboard,
   Sparkles,
@@ -576,21 +577,82 @@ function RiskView() {
    8. ANALYTICS VIEW
    ========================================================================= */
 function AnalyticsView() {
+  const [ticker, setTicker] = useState("TCS");
+  const [prediction, setPrediction] = useState<PredictionData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const runPrediction = (targetSym?: string) => {
+    const sym = (targetSym || ticker).trim();
+    if (!sym) return;
+    setLoading(true);
+    fetch(`/api/predict?ticker=${encodeURIComponent(sym)}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.status === "success" && res.data) {
+          setPrediction(res.data);
+        }
+      })
+      .catch((e) => console.error("Error fetching ML prediction in terminal:", e))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    runPrediction("TCS");
+  }, []);
+
   return (
-    <Panel title="Financial Performance Matrix & Analytics">
-      <p className="text-xs text-muted-foreground mb-4">Multi-timeframe return comparison across stocks and market benchmarks.</p>
-      <table className="w-full text-xs text-center">
-        <thead>
-          <tr className="border-b border-border text-[0.68rem] text-muted-foreground uppercase">
-            <th className="py-2 text-left">Asset</th><th>1D</th><th>5D</th><th>1M</th><th>3M</th><th>1Y</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/50">
-          <tr><td className="py-2 text-left font-bold">RELIANCE</td><td className="text-bull">+1.51%</td><td className="text-bull">+2.34%</td><td className="text-bull">+5.62%</td><td className="text-bull">+12.18%</td><td className="text-bull">+20.41%</td></tr>
-          <tr><td className="py-2 text-left font-bold">NIFTY 50</td><td className="text-bull">+0.68%</td><td className="text-bull">+1.25%</td><td className="text-bull">+2.71%</td><td className="text-bull">+6.23%</td><td className="text-bull">+13.10%</td></tr>
-        </tbody>
-      </table>
-    </Panel>
+    <div className="space-y-4">
+      <Panel title="Surya ML Predictive Analytics Lab">
+        <div className="flex gap-2 mb-4">
+          <input
+            value={ticker}
+            onChange={(e) => setTicker(e.target.value.toUpperCase())}
+            placeholder="Enter any Indian stock symbol (e.g. TCS, RELIANCE, INFY, TATAMOTORS)..."
+            className="flex-1 rounded border border-border bg-secondary px-3 py-1.5 text-xs text-foreground outline-none"
+          />
+          <button
+            onClick={() => runPrediction()}
+            disabled={loading}
+            className="rounded bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground uppercase hover:brightness-110 disabled:opacity-50"
+          >
+            {loading ? "Computing..." : "Run ML Forecast"}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 mb-4 text-xs">
+          <span className="text-muted-foreground text-[0.68rem] self-center mr-1">Quick Select:</span>
+          {["TCS", "RELIANCE", "INFY", "HDFCBANK", "ICICIBANK", "MRF"].map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setTicker(s);
+                runPrediction(s);
+              }}
+              className="px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 text-[0.68rem] font-semibold"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <MLPredictionCard prediction={prediction} loading={loading} />
+      </Panel>
+
+      <Panel title="Benchmark Multi-Timeframe Performance Matrix">
+        <p className="text-xs text-muted-foreground mb-4">Multi-timeframe return comparison across stocks and market benchmarks.</p>
+        <table className="w-full text-xs text-center">
+          <thead>
+            <tr className="border-b border-border text-[0.68rem] text-muted-foreground uppercase">
+              <th className="py-2 text-left">Asset</th><th>1D</th><th>5D</th><th>1M</th><th>3M</th><th>1Y</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            <tr><td className="py-2 text-left font-bold">RELIANCE</td><td className="text-bull">+1.51%</td><td className="text-bull">+2.34%</td><td className="text-bull">+5.62%</td><td className="text-bull">+12.18%</td><td className="text-bull">+20.41%</td></tr>
+            <tr><td className="py-2 text-left font-bold">NIFTY 50</td><td className="text-bull">+0.68%</td><td className="text-bull">+1.25%</td><td className="text-bull">+2.71%</td><td className="text-bull">+6.23%</td><td className="text-bull">+13.10%</td></tr>
+          </tbody>
+        </table>
+      </Panel>
+    </div>
   );
 }
 

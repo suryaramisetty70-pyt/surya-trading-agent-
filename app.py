@@ -127,6 +127,17 @@ def refresh_universe_route():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/predict', methods=['GET'])
+def predict_stock_route():
+    ticker = request.args.get('ticker', 'TCS').strip().upper()
+    try:
+        from ml_pipeline import predict_stock
+        pred = predict_stock(ticker)
+        return jsonify({'status': 'success', 'data': pred})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/api/models/retrain', methods=['POST'])
 def retrain_model_route():
     try:

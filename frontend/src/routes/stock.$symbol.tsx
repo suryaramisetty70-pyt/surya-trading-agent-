@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { TopBar } from "@/components/market/Chrome";
 import { Delta, Gauge, LivePrice, Panel } from "@/components/market/primitives";
 import CandleChart from "@/components/market/CandleChart";
+import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
 import { BASE_QUOTES, findQuote, fmt } from "@/lib/market";
 import { usePaperTrading } from "@/lib/paperTrading";
 import { ShieldCheck, TrendingUp, Cpu, Award, CheckCircle2, ArrowUpRight, ArrowDownRight } from "lucide-react";
@@ -46,6 +47,10 @@ function StockPage() {
   const [liveData, setLiveData] = useState<any>(null);
   const [loadingLive, setLoadingLive] = useState(true);
 
+  // ML Prediction state
+  const [mlPrediction, setMlPrediction] = useState<PredictionData | null>(null);
+  const [loadingPrediction, setLoadingPrediction] = useState(true);
+
   // Paper trading integration
   const paper = usePaperTrading();
   const [tradeQty, setTradeQty] = useState(10);
@@ -54,6 +59,8 @@ function StockPage() {
   useEffect(() => {
     let cancelled = false;
     setLoadingLive(true);
+    setLoadingPrediction(true);
+
     fetch(`/api/stock-data?ticker=${encodeURIComponent(quote.symbol)}`)
       .then((res) => res.json())
       .then((json) => {
@@ -64,6 +71,18 @@ function StockPage() {
       .catch((err) => console.error("Error fetching live stock data:", err))
       .finally(() => {
         if (!cancelled) setLoadingLive(false);
+      });
+
+    fetch(`/api/predict?ticker=${encodeURIComponent(quote.symbol)}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (!cancelled && json.status === "success" && json.data) {
+          setMlPrediction(json.data);
+        }
+      })
+      .catch((err) => console.error("Error fetching ML prediction:", err))
+      .finally(() => {
+        if (!cancelled) setLoadingPrediction(false);
       });
 
     return () => {
@@ -302,14 +321,18 @@ function StockPage() {
                 </div>
               </div>
 
-              {/* Real Candlestick Chart passing live candle series */}
+              {/* Real Candlestick Chart passing live candle series and ML 5-Day Projection Cone */}
               <CandleChart
                 symbol={quote.symbol}
                 base={price}
                 range={range}
                 candlesData={liveData?.chart_series?.candles}
+                projectionData={mlPrediction?.projection_cone}
               />
             </section>
+
+            {/* Surya ML Predictive Intelligence Engine Card */}
+            <MLPredictionCard prediction={mlPrediction} loading={loadingPrediction} />
 
             {/* 1-Click Virtual Paper Trading Console (Inspired by OpenAlgo) */}
             <Panel title={`1-Click Virtual Paper Trading Console — ${quote.symbol}`}>
