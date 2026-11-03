@@ -138,6 +138,49 @@ def predict_stock_route():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/options-chain', methods=['GET'])
+def get_options_chain_route():
+    ticker = request.args.get('ticker', 'NIFTY').strip().upper()
+    try:
+        from options_engine import get_options_chain
+        chain = get_options_chain(ticker)
+        return jsonify({'status': 'success', 'data': chain})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/screener', methods=['GET'])
+def get_screener_route():
+    strategy = request.args.get('strategy', 'ALL').strip().upper()
+    try:
+        from screener import scan_stocks
+        results = scan_stocks(strategy)
+        return jsonify({'status': 'success', 'data': results})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/webhook/order', methods=['POST'])
+def webhook_order_route():
+    payload = request.get_json(silent=True) or request.form.to_dict() or {}
+    try:
+        from broker_gateway import process_webhook_order
+        res = process_webhook_order(payload)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/broker/status', methods=['GET'])
+def get_broker_status_route():
+    try:
+        from broker_gateway import get_broker_status
+        res = get_broker_status()
+        return jsonify({'status': 'success', 'data': res})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/api/models/retrain', methods=['POST'])
 def retrain_model_route():
     try:

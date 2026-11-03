@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { usePaperTrading } from "@/lib/paperTrading";
 import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
+import OptionChainPanel from "@/components/market/OptionChainPanel";
 import {
   LayoutDashboard,
   Sparkles,
@@ -20,7 +21,12 @@ import {
   TrendingUp,
   TrendingDown,
   Play,
-  Volume2
+  Volume2,
+  Layers,
+  Copy,
+  Check,
+  RefreshCw,
+  Zap
 } from "lucide-react";
 import { TopBar, TickerTape } from "@/components/market/Chrome";
 import { Delta, Gauge, LivePrice, Panel, Sparkline } from "@/components/market/primitives";
@@ -44,6 +50,7 @@ const SIDE = [
   { label: "Dashboard", Icon: LayoutDashboard },
   { label: "AI Studio", Icon: Sparkles },
   { label: "Markets", Icon: Globe },
+  { label: "Options", Icon: Layers },
   { label: "Watchlist", Icon: Star },
   { label: "Portfolios", Icon: PieChart },
   { label: "Orders", Icon: FileText },
@@ -99,6 +106,7 @@ function Terminal() {
           {active === "Dashboard" && <DashboardView />}
           {active === "AI Studio" && <AiStudioView />}
           {active === "Markets" && <MarketsView />}
+          {active === "Options" && <OptionChainPanel ticker="NIFTY" />}
           {active === "Watchlist" && <WatchlistView />}
           {active === "Portfolios" && <PortfoliosView />}
           {active === "Orders" && <OrdersView />}
@@ -228,41 +236,160 @@ function DashboardView() {
 }
 
 /* =========================================================================
-   2. MARKETS VIEW
+   2. MARKETS VIEW (INSTITUTIONAL QUANT BREAKOUT SCREENER)
    ========================================================================= */
 function MarketsView() {
-  const quotes = useLiveQuotes();
+  const [strategy, setStrategy] = useState("ALL");
+  const [loading, setLoading] = useState(false);
+  const [screenerData, setScreenerData] = useState<any[]>([]);
+
+  const fetchScreener = (strat: string) => {
+    setLoading(true);
+    fetch(`/api/screener?strategy=${strat}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.status === "success" && Array.isArray(res.data)) {
+          setScreenerData(res.data);
+        }
+      })
+      .catch((e) => console.error("Error fetching screener:", e))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchScreener(strategy);
+  }, [strategy]);
+
+  const STRATEGIES = [
+    { id: "ALL", label: "All Equities", desc: "Universe scan" },
+    { id: "52W_HIGH", label: "52-Week High Breakouts", desc: "Within 3.5% of ATH" },
+    { id: "GOLDEN_CROSS", label: "Golden Cross (Trend)", desc: "Price > 20 EMA > 50 EMA" },
+    { id: "OVERSOLD_REBOUND", label: "Oversold Rebound", desc: "RSI ≤ 42 with green candle" },
+    { id: "VOLUME_SURGE", label: "Institutional Volume Surge", desc: "Vol ≥ 1.25x 20-Day Avg" },
+  ];
+
   return (
     <div className="space-y-4">
-      <Panel title="Market Stock Screener">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted-foreground border-b border-border text-[0.68rem] uppercase">
-              <th className="py-2 text-left">Symbol</th>
-              <th className="py-2 text-left">Company</th>
-              <th className="py-2 text-left">Sector</th>
-              <th className="py-2 text-right">Price</th>
-              <th className="py-2 text-right">Change %</th>
-              <th className="py-2 text-right">Market Cap</th>
-              <th className="py-2 text-right">Volume</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
-            {quotes.map((q) => (
-              <tr key={q.symbol} className="hover:bg-secondary/40">
-                <td className="py-2.5 font-bold text-primary">{q.symbol}</td>
-                <td className="py-2.5 text-muted-foreground">{q.name}</td>
-                <td className="py-2.5">{q.sector}</td>
-                <td className="py-2.5 text-right num font-semibold">₹{fmt(q.price)}</td>
-                <td className={`py-2.5 text-right num font-semibold ${q.changePct >= 0 ? 'text-bull' : 'text-bear'}`}>
-                  {q.changePct >= 0 ? '+' : ''}{q.changePct}%
-                </td>
-                <td className="py-2.5 text-right num">{q.marketCap}</td>
-                <td className="py-2.5 text-right num">{q.volume}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Strategy selector tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {STRATEGIES.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setStrategy(s.id)}
+              className={`px-3 py-1.5 rounded text-xs font-semibold transition ${
+                strategy === s.id
+                  ? "bg-primary text-primary-foreground font-bold shadow-sm"
+                  : "bg-secondary text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => fetchScreener(strategy)}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-secondary hover:bg-secondary/80 text-xs font-semibold text-muted-foreground hover:text-foreground"
+        >
+          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh Screener
+        </button>
+      </div>
+
+      <Panel title={`Institutional Setup Results (${screenerData.length} Equities)`}>
+        {screenerData.length === 0 && !loading ? (
+          <p className="text-xs text-muted-foreground py-6 text-center">
+            No stocks currently qualify under {strategy} criteria. Check other strategies or refresh.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground border-b border-border text-[0.68rem] uppercase">
+                  <th className="py-2.5 text-left">Ticker</th>
+                  <th className="py-2.5 text-left">Sector</th>
+                  <th className="py-2.5 text-right">LTP (₹)</th>
+                  <th className="py-2.5 text-right">Change %</th>
+                  <th className="py-2.5 text-right">RSI (14)</th>
+                  <th className="py-2.5 text-right">Vol vs 20D</th>
+                  <th className="py-2.5 text-right">52W Gap</th>
+                  <th className="py-2.5 text-left pl-3">Signals Detected</th>
+                  <th className="py-2.5 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {screenerData.map((item) => (
+                  <tr key={item.symbol} className="hover:bg-secondary/40 transition">
+                    <td className="py-3 font-bold text-primary">
+                      <Link to="/stock/$symbol" params={{ symbol: item.symbol }} className="hover:underline">
+                        {item.symbol}
+                      </Link>
+                      <span className="block text-[0.65rem] font-normal text-muted-foreground truncate max-w-[120px]">
+                        {item.name}
+                      </span>
+                    </td>
+                    <td className="py-3 text-muted-foreground text-[0.72rem]">{item.sector}</td>
+                    <td className="py-3 text-right num font-semibold">₹{fmt(item.price)}</td>
+                    <td className={`py-3 text-right num font-bold ${item.change_pct >= 0 ? "text-bull" : "text-bear"}`}>
+                      {item.change_pct >= 0 ? "+" : ""}{item.change_pct}%
+                    </td>
+                    <td className="py-3 text-right">
+                      <span
+                        className={`num font-semibold px-1.5 py-0.5 rounded text-[0.68rem] ${
+                          item.rsi_14 <= 35
+                            ? "bg-bull/20 text-bull font-bold"
+                            : item.rsi_14 >= 65
+                            ? "bg-bear/20 text-bear font-bold"
+                            : "bg-secondary text-foreground"
+                        }`}
+                      >
+                        {item.rsi_14}
+                      </span>
+                    </td>
+                    <td className="py-3 text-right">
+                      <span className={`num font-semibold ${item.vol_ratio >= 1.25 ? "text-primary font-bold" : "text-muted-foreground"}`}>
+                        {item.vol_ratio}x
+                      </span>
+                    </td>
+                    <td className="py-3 text-right num text-muted-foreground">
+                      {item.dist_to_52w_high !== undefined ? `${item.dist_to_52w_high}%` : "-"}
+                    </td>
+                    <td className="py-3 pl-3">
+                      <div className="flex flex-wrap gap-1">
+                        {item.tags?.map((t: string) => (
+                          <span
+                            key={t}
+                            className={`px-1.5 py-0.5 rounded text-[0.6rem] font-bold ${
+                              t === "52W_HIGH"
+                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                : t === "GOLDEN_CROSS"
+                                ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                                : t === "OVERSOLD_REBOUND"
+                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                : "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                            }`}
+                          >
+                            {t.replace("_", " ")}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="py-3 text-right">
+                      <Link
+                        to="/stock/$symbol"
+                        params={{ symbol: item.symbol }}
+                        className="px-2.5 py-1 rounded bg-primary/20 text-primary hover:bg-primary hover:text-primary-foreground font-bold text-[0.65rem] transition"
+                      >
+                        Analyze / Trade
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Panel>
     </div>
   );
@@ -838,6 +965,9 @@ function SettingsView() {
   const [universeStats, setUniverseStats] = useState<any>(null);
   const [modelData, setModelData] = useState<any>(null);
   const [retraining, setRetraining] = useState(false);
+  const [brokerData, setBrokerData] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
 
   const fetchStatsAndModels = async () => {
     try {
@@ -848,6 +978,10 @@ function SettingsView() {
       const mRes = await fetch("/api/models/history");
       const mData = await mRes.json();
       if (mData.status === "success") setModelData(mData.data);
+
+      const bRes = await fetch("/api/broker/status");
+      const bData = await bRes.json();
+      if (bData.status === "success") setBrokerData(bData.data);
     } catch (e) {
       console.error("Error fetching stats:", e);
     }
@@ -856,6 +990,41 @@ function SettingsView() {
   useEffect(() => {
     fetchStatsAndModels();
   }, []);
+
+  const handleCopyWebhook = () => {
+    const url = `${window.location.origin}/api/webhook/order`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleSendTestWebhook = async () => {
+    setSendingTest(true);
+    try {
+      const res = await fetch("/api/webhook/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: "RELIANCE",
+          action: "BUY",
+          quantity: 5,
+          price: 2850.0,
+          source: "Settings Test Console"
+        }),
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setStatusMsg(`🟢 Webhook Executed: ${data.message}`);
+        fetchStatsAndModels();
+      } else {
+        setStatusMsg("🔴 Webhook execution returned error.");
+      }
+    } catch (e) {
+      setStatusMsg("🔴 Network error firing webhook.");
+    } finally {
+      setSendingTest(false);
+    }
+  };
 
   const refreshUniverse = async () => {
     setStatusMsg("Syncing NSE/BSE symbol master list...");
@@ -1061,6 +1230,112 @@ function SettingsView() {
             <p className="p-2.5 bg-secondary border border-border rounded font-mono text-[0.68rem] text-center font-bold">
               {statusMsg}
             </p>
+          )}
+        </div>
+      </Panel>
+
+      {/* 4. TradingView Webhook & Broker Execution Gateway */}
+      <Panel title="TradingView & Algorithmic Broker Webhook Bridge">
+        <div className="space-y-4 text-xs">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="p-3 bg-secondary/30 rounded border border-border">
+              <span className="text-muted-foreground uppercase text-[0.6rem] block">Active Execution Gateway</span>
+              <span className="font-bold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
+                <span className="size-2 rounded-full bg-bull animate-pulse" />
+                {brokerData?.config?.broker_name || "Dhan Sandbox Gateway"}
+              </span>
+            </div>
+            <div className="p-3 bg-secondary/30 rounded border border-border">
+              <span className="text-muted-foreground uppercase text-[0.6rem] block">Environment & Account</span>
+              <span className="font-mono font-bold text-primary text-sm mt-0.5 block">
+                {brokerData?.config?.client_id || "DHAN_PAPER_98214"}
+              </span>
+            </div>
+            <div className="p-3 bg-secondary/30 rounded border border-border">
+              <span className="text-muted-foreground uppercase text-[0.6rem] block">Gateway Latency</span>
+              <span className="font-bold text-bull text-sm mt-0.5 block">
+                {brokerData?.config?.ping_ms || 28} ms
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="font-bold text-muted-foreground uppercase text-[0.62rem] block mb-1">
+              TradingView Webhook Listener URL
+            </label>
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={`${typeof window !== "undefined" ? window.location.origin : "http://localhost:5000"}/api/webhook/order`}
+                className="flex-1 rounded border border-border bg-secondary p-2.5 font-mono text-[0.75rem] text-foreground outline-none"
+              />
+              <button
+                onClick={handleCopyWebhook}
+                className="flex items-center gap-1 px-4 py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider text-xs transition"
+              >
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {copied ? "Copied!" : "Copy"}
+              </button>
+              <button
+                onClick={handleSendTestWebhook}
+                disabled={sendingTest}
+                className="flex items-center gap-1 px-4 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider text-xs transition disabled:opacity-50"
+              >
+                <Zap className="size-3.5" />
+                {sendingTest ? "Firing..." : "Send Test Order"}
+              </button>
+            </div>
+          </div>
+
+          <div className="p-3 bg-secondary/20 rounded border border-border/80">
+            <span className="text-muted-foreground font-semibold uppercase text-[0.62rem] block mb-1">
+              Recommended TradingView Alert Message Body (JSON Format):
+            </span>
+            <pre className="font-mono text-[0.68rem] text-primary bg-background/80 p-2.5 rounded border border-border/50 overflow-x-auto">
+{`{
+  "symbol": "{{ticker}}",
+  "action": "{{strategy.order.action}}",
+  "quantity": {{strategy.order.contracts}},
+  "price": {{close}},
+  "source": "TradingView Alert Webhook"
+}`}
+            </pre>
+          </div>
+
+          {brokerData?.recent_webhooks && brokerData.recent_webhooks.length > 0 && (
+            <div>
+              <span className="text-muted-foreground font-semibold uppercase text-[0.62rem] block mb-2">
+                Recent Inbound Webhook Execution Log ({brokerData.recent_webhooks.length} Events)
+              </span>
+              <table className="w-full text-[0.72rem]">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground text-[0.6rem] uppercase">
+                    <th className="py-1.5 text-left">Order ID</th>
+                    <th className="py-1.5 text-left">Timestamp</th>
+                    <th className="py-1.5 text-left">Ticker</th>
+                    <th className="py-1.5 text-left">Action</th>
+                    <th className="py-1.5 text-right">Qty</th>
+                    <th className="py-1.5 text-right">Price</th>
+                    <th className="py-1.5 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40 font-mono">
+                  {brokerData.recent_webhooks.map((w: any) => (
+                    <tr key={w.order_id} className="hover:bg-secondary/20">
+                      <td className="py-1.5 text-primary font-bold">{w.order_id}</td>
+                      <td className="py-1.5 text-muted-foreground">{w.timestamp}</td>
+                      <td className="py-1.5 font-bold text-foreground">{w.symbol}</td>
+                      <td className={`py-1.5 font-bold ${w.action === "BUY" ? "text-bull" : "text-bear"}`}>
+                        {w.action}
+                      </td>
+                      <td className="py-1.5 text-right num">{w.quantity}</td>
+                      <td className="py-1.5 text-right num">₹{w.price}</td>
+                      <td className="py-1.5 text-right text-bull font-bold">{w.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </Panel>

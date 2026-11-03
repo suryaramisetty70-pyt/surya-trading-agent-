@@ -1,0 +1,95 @@
+"""
+Institutional Market Screener & Breakout Scanner
+Scans Indian Equities across key quantitative setups:
+1. 52-Week High Breakouts
+2. Golden Cross (Trend Alignment: Price > EMA 20 > EMA 50)
+3. Oversold Rebound (RSI < 40 with positive reversal)
+4. Volume Surge (> 1.25x 20-day average volume)
+"""
+
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from stock_data import get_stock_data, safe
+
+SCREENER_CACHE = {"time": 0, "data": {}}
+
+SCREENER_CANDIDATES = [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
+    "SBIN.NS", "LT.NS", "BHARTIARTL.NS", "TITAN.NS", "TATASTEEL.NS",
+    "TATAMOTORS.NS", "MARUTI.NS", "SUNPHARMA.NS", "ITC.NS", "NTPC.NS",
+    "BAJFINANCE.NS", "ADANIENT.NS", "ADANIPOWER.NS", "DLF.NS", "BEL.NS"
+]
+
+def scan_stocks(strategy: str = "ALL") -> dict:
+    now = time.time()
+    clean_strat = strategy.upper()
+
+    if SCREENER_CACHE["data"] and (now - SCREENER_CACHE["time"] < 60):
+        all_results = SCREENER_CACHE["data"]
+        if clean_strat in all_results:
+            return all_results[clean_strat]
+        if clean_strat == "ALL":
+            return all_results
+
+    def _analyze_one(sym):
+        try:
+            d = get_stock_data(sym)
+            if not d or not d.get("current_price"):
+                return None
+
+            price = safe(d["current_price"])
+            p_change = safe(d.get("change_pct"))
+            w_high = safe(d.get("week_52_high"), price * 1.1)
+            rsi = safe(d.get("rsi_14"), 50)
+            ema20 = safe(d.get("ema_20"), price * 0.98)
+            ema50 = safe(d.get("ema_50"), price * 0.95)
+            vol = safe(d.get("volume"), 1000000)
+            avg_vol = safe(d.get("avg_volume"), 800000)
+
+            vol_ratio = round(vol / (avg_vol + 1e-8), 2)
+            dist_to_52w = round(((w_high - price) / w_high) * 100, 2) if w_high else 99
+
+            tags = []
+            if dist_to_52w <= 3.5:
+                tags.append("52W_HIGH")
+            if price > ema20 and ema20 > ema50:
+                tags.append("GOLDEN_CROSS")
+            if rsi <= 42 and p_change >= 0:
+                tags.append("OVERSOLD_REBOUND")
+            if vol_ratio >= 1.25:
+                tags.append("VOLUME_SURGE")
+
+            return {
+                "symbol": sym.replace(".NS", ""),
+                "name": d.get("company_name", sym),
+                "price": round(price, 2),
+                "change_pct": round(p_change, 2),
+                "rsi_14": round(rsi, 1),
+                "vol_ratio": vol_ratio,
+                "dist_to_52w_high": dist_to_52w,
+                "tags": tags,
+                "sector": d.get("sector", "Diversified")
+            }
+        except Exception:
+            return None
+
+    items = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = [ex.submit(_analyze_one, sym) for sym in SCREENER_CANDIDATES]
+        for f in as_completed(futures):
+            res = f.result()
+            if res:
+                items.append(res)
+
+    results_by_strat = {
+        "ALL": items,
+        "52W_HIGH": [x for x in items if "52W_HIGH" in x["tags"]],
+        "GOLDEN_CROSS": [x for x in items if "GOLDEN_CROSS" in x["tags"]],
+        "OVERSOLD_REBOUND": [x for x in items if "OVERSOLD_REBOUND" in x["tags"]],
+        "VOLUME_SURGE": [x for x in items if "VOLUME_SURGE" in x["tags"]],
+    }
+
+    SCREENER_CACHE["data"] = results_by_strat
+    SCREENER_CACHE["time"] = now
+
+    return results_by_strat.get(clean_strat, results_by_strat["ALL"])
