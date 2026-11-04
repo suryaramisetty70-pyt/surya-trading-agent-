@@ -46,41 +46,43 @@
 
 :root {
   --radius: 0.5rem;
-  --background: oklch(0.13 0.018 258);
-  --foreground: oklch(0.96 0.005 250);
-  --panel: oklch(0.17 0.021 258);
-  --card: oklch(0.17 0.021 258);
-  --card-foreground: oklch(0.96 0.005 250);
-  --popover: oklch(0.19 0.022 258);
-  --popover-foreground: oklch(0.96 0.005 250);
-  --primary: oklch(0.78 0.15 213);
-  --primary-foreground: oklch(0.15 0.02 258);
-  --secondary: oklch(0.24 0.025 258);
-  --secondary-foreground: oklch(0.94 0.005 250);
-  --muted: oklch(0.22 0.022 258);
-  --muted-foreground: oklch(0.66 0.02 254);
-  --accent: oklch(0.62 0.2 285);
-  --accent-foreground: oklch(0.97 0.005 250);
-  --destructive: oklch(0.62 0.21 22);
-  --destructive-foreground: oklch(0.97 0.005 250);
-  --border: oklch(0.28 0.028 258);
-  --input: oklch(0.28 0.028 258);
-  --ring: oklch(0.78 0.15 213);
-  --bull: oklch(0.76 0.18 155);
-  --bear: oklch(0.66 0.2 22);
-  --neutralq: oklch(0.7 0.02 254);
-  --violetq: oklch(0.66 0.2 290);
-  --chart-1: oklch(0.78 0.15 213);
-  --chart-2: oklch(0.76 0.18 155);
-  --chart-3: oklch(0.66 0.2 290);
-  --chart-4: oklch(0.8 0.16 85);
-  --chart-5: oklch(0.66 0.2 22);
-  --glow-cyan: 0 0 24px color-mix(in oklab, var(--primary) 45%, transparent);
+
+  /* Theme 4: Cobalt Titanium & Royal Blue (TradingView Pro Institutional) */
+  --background: #0b111e;
+  --foreground: #f8fafc;
+  --panel: #131d31;
+  --card: #131d31;
+  --card-foreground: #f8fafc;
+  --popover: #1a2742;
+  --popover-foreground: #f8fafc;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #1a2742;
+  --secondary-foreground: #e2e8f0;
+  --muted: #1a2742;
+  --muted-foreground: #94a3b8;
+  --accent: #38bdf8;
+  --accent-foreground: #0b111e;
+  --destructive: #f43f5e;
+  --destructive-foreground: #ffffff;
+  --border: #22324e;
+  --input: #1a2742;
+  --ring: #3b82f6;
+  --bull: #22c55e;
+  --bear: #f43f5e;
+  --neutralq: #94a3b8;
+  --violetq: #818cf8;
+  --chart-1: #3b82f6;
+  --chart-2: #22c55e;
+  --chart-3: #38bdf8;
+  --chart-4: #a855f7;
+  --chart-5: #f43f5e;
+  --glow-cyan: 0 0 24px rgba(59, 130, 246, 0.4);
   --grad-hero: linear-gradient(
     100deg,
-    var(--primary) 0%,
-    oklch(0.72 0.17 250) 45%,
-    var(--violetq) 100%
+    #3b82f6 0%,
+    #38bdf8 50%,
+    #22c55e 100%
   );
 }
 
