@@ -137,6 +137,43 @@ export function sellStock(symbol: string, price: number, quantity: number) {
   return { success: true, message: `Successfully sold ${quantity} shares of ${symbol} at ₹${price.toFixed(2)}` };
 }
 
+export function depositCash(amount: number) {
+  if (amount <= 0) return { success: false, message: "Invalid deposit amount" };
+  const state = getInitialState();
+  state.cash += amount;
+  state.trades.unshift({
+    id: "tx_dep_" + Date.now(),
+    timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }) + ", " + new Date().toLocaleDateString("en-IN"),
+    symbol: "FUNDS_DEPOSIT",
+    type: "BUY",
+    quantity: 1,
+    price: amount,
+    total: amount,
+  });
+  saveState(state);
+  return { success: true, message: `Successfully added ₹${amount.toLocaleString("en-IN")} virtual funds!` };
+}
+
+export function withdrawCash(amount: number) {
+  if (amount <= 0) return { success: false, message: "Invalid withdrawal amount" };
+  const state = getInitialState();
+  if (state.cash < amount) {
+    return { success: false, message: `Insufficient cash balance to withdraw ₹${amount.toLocaleString("en-IN")}` };
+  }
+  state.cash -= amount;
+  state.trades.unshift({
+    id: "tx_wth_" + Date.now(),
+    timestamp: new Date().toLocaleTimeString("en-IN", { hour12: false }) + ", " + new Date().toLocaleDateString("en-IN"),
+    symbol: "FUNDS_WITHDRAWAL",
+    type: "SELL",
+    quantity: 1,
+    price: amount,
+    total: amount,
+  });
+  saveState(state);
+  return { success: true, message: `Successfully withdrew ₹${amount.toLocaleString("en-IN")} funds!` };
+}
+
 export function resetPaperPortfolio() {
   const initial = { cash: INITIAL_CASH, positions: [], trades: [] };
   saveState(initial);
@@ -172,6 +209,8 @@ export function usePaperTrading() {
     netPortfolioValue,
     buyStock,
     sellStock,
+    depositCash,
+    withdrawCash,
     resetPaperPortfolio,
   };
 }

@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { usePaperTrading } from "@/lib/paperTrading";
+import { useUserAccount, playTradeSound } from "@/lib/userAccount";
 import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
 import OptionChainPanel from "@/components/market/OptionChainPanel";
 import Globe3D from "@/components/market/Globe3D";
@@ -24,12 +25,23 @@ import {
   TrendingDown,
   Play,
   Volume2,
+  VolumeX,
   Layers,
   Copy,
   Check,
   RefreshCw,
   Zap,
-  Orbit
+  Orbit,
+  UserCheck,
+  CreditCard,
+  Download,
+  ShieldAlert,
+  Sliders,
+  Lock,
+  Building,
+  Key,
+  CheckCircle2,
+  ExternalLink
 } from "lucide-react";
 import { TopBar, TickerTape } from "@/components/market/Chrome";
 import { Delta, Gauge, LivePrice, Panel, Sparkline } from "@/components/market/primitives";
@@ -63,11 +75,38 @@ const SIDE = [
   { label: "Analytics", Icon: BarChart3 },
   { label: "News", Icon: Newspaper },
   { label: "Events", Icon: CalendarDays },
+  { label: "Account", Icon: UserCheck },
   { label: "Settings", Icon: Settings },
 ];
 
 function Terminal() {
-  const [active, setActive] = useState("Dashboard");
+  const [active, setActive] = useState(() => {
+    if (typeof window !== "undefined" && window.location.hash) {
+      const h = decodeURIComponent(window.location.hash.slice(1).split(":")[0]);
+      const match = SIDE.find((s) => s.label.toLowerCase() === h.toLowerCase());
+      if (match) return match.label;
+    }
+    return "Dashboard";
+  });
+
+  useEffect(() => {
+    const handleHash = () => {
+      if (typeof window !== "undefined" && window.location.hash) {
+        const h = decodeURIComponent(window.location.hash.slice(1).split(":")[0]);
+        const match = SIDE.find((s) => s.label.toLowerCase() === h.toLowerCase());
+        if (match) setActive(match.label);
+      }
+    };
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
+
+  const handleSelectTab = (label: string) => {
+    setActive(label);
+    if (typeof window !== "undefined") {
+      window.location.hash = label;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -78,7 +117,7 @@ function Terminal() {
           {SIDE.map(({ label, Icon }) => (
             <button
               key={label}
-              onClick={() => setActive(label)}
+              onClick={() => handleSelectTab(label)}
               className={`flex flex-col items-center gap-1.5 px-2 py-3 text-[0.58rem] font-semibold tracking-[0.1em] uppercase transition ${
                 active === label
                   ? "border-l-2 border-primary bg-primary/10 text-primary"
@@ -120,6 +159,7 @@ function Terminal() {
           {active === "Analytics" && <AnalyticsView />}
           {active === "News" && <NewsView />}
           {active === "Events" && <EventsView />}
+          {active === "Account" && <AccountView />}
           {active === "Settings" && <SettingsView />}
         </main>
       </div>
@@ -634,6 +674,7 @@ function PortfoliosView() {
    ========================================================================= */
 function OrdersView() {
   const paper = usePaperTrading();
+  const { preferences, addNotification } = useUserAccount();
   const [sym, setSym] = useState("TCS");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [qty, setQty] = useState(10);
@@ -641,13 +682,29 @@ function OrdersView() {
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const submitOrder = () => {
-    if (side === "BUY") {
-      const res = paper.buyStock(sym, sym, price, qty);
-      setMsg({ text: res.message, ok: res.success });
-    } else {
-      const res = paper.sellStock(sym, price, qty);
-      setMsg({ text: res.message, ok: res.success });
+    if (preferences.killSwitchEnabled) {
+      setMsg({ text: "⚠️ KILL SWITCH ACTIVE: Orders blocked by your risk limit rules in Settings.", ok: false });
+      return;
     }
+    const orderVal = price * qty;
+    if (preferences.maxSingleOrderValue && orderVal > preferences.maxSingleOrderValue) {
+      setMsg({ text: `⚠️ Order value ₹${fmt(orderVal, 2)} exceeds your max single order limit ₹${fmt(preferences.maxSingleOrderValue, 2)}.`, ok: false });
+      return;
+    }
+
+    let res;
+    if (side === "BUY") {
+      res = paper.buyStock(sym, sym, price, qty);
+    } else {
+      res = paper.sellStock(sym, price, qty);
+    }
+
+    if (res.success) {
+      playTradeSound();
+      addNotification("Order Executed", `${side} ${qty} ${sym} @ ₹${fmt(price, 2)} (Filled)`, "ORDER");
+    }
+
+    setMsg({ text: res.message, ok: res.success });
     setTimeout(() => setMsg(null), 4000);
   };
 
@@ -1044,9 +1101,383 @@ function EventsView() {
 }
 
 /* =========================================================================
-   11. SETTINGS VIEW (API + UNIVERSE + MODEL REGISTRY)
+   11. ACCOUNT & PROFILE VIEW
+   ========================================================================= */
+function AccountView() {
+  const { profile, updateProfile, preferences, addNotification } = useUserAccount();
+  const { cash, netPortfolioValue, holdingsValue, trades, depositCash, withdrawCash, resetPaperPortfolio } = usePaperTrading();
+  const [depositAmount, setDepositAmount] = useState<number>(100000);
+  const [withdrawAmount, setWithdrawAmount] = useState<number>(50000);
+  const [feedbackMsg, setFeedbackMsg] = useState("");
+
+  const safeTrades = Array.isArray(trades) ? trades : [];
+  const portfolioValue = Number(netPortfolioValue) || 1000000;
+  const currentCash = Number(cash) || 0;
+  const usedMargin = Math.max(0, Number(holdingsValue) || 0);
+  const marginUtilizationPct = portfolioValue > 0 ? Math.min(100, Math.round((usedMargin / portfolioValue) * 100)) : 0;
+
+  const handleDeposit = (amt: number) => {
+    depositCash(amt);
+    addNotification("Funds Deposited", `Credited ₹${amt.toLocaleString("en-IN")} to trading account margin.`, "SYSTEM");
+    setFeedbackMsg(`🟢 Credited ₹${amt.toLocaleString("en-IN")} to trading capital!`);
+    playTradeSound();
+    setTimeout(() => setFeedbackMsg(""), 3500);
+  };
+
+  const handleWithdraw = (amt: number) => {
+    if (amt > currentCash) {
+      setFeedbackMsg(`🔴 Insufficient cash buffer! Available free cash: ₹${currentCash.toLocaleString("en-IN")}`);
+      setTimeout(() => setFeedbackMsg(""), 3500);
+      return;
+    }
+    withdrawCash(amt);
+    addNotification("Funds Withdrawn", `Debited ₹${amt.toLocaleString("en-IN")} to primary bank account.`, "SYSTEM");
+    setFeedbackMsg(`🟢 Transferred ₹${amt.toLocaleString("en-IN")} to ${profile.primaryBank}!`);
+    setTimeout(() => setFeedbackMsg(""), 3500);
+  };
+
+  const exportTradeBookCSV = () => {
+    if (!safeTrades || safeTrades.length === 0) {
+      setFeedbackMsg("ℹ️ No orders in trade book to export.");
+      setTimeout(() => setFeedbackMsg(""), 3000);
+      return;
+    }
+    const headers = ["Trade ID", "Timestamp", "Symbol", "Type", "Quantity", "Execution Price (INR)", "Total Value (INR)", "Status"];
+    const rows = safeTrades.map((t) => [
+      `"${t.id}"`,
+      `"${t.timestamp}"`,
+      `"${t.symbol}"`,
+      `"${t.type}"`,
+      t.quantity,
+      t.price.toFixed(2),
+      t.total.toFixed(2),
+      `"FILLED"`,
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `nexus_trade_book_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setFeedbackMsg("🟢 Trade book exported to CSV successfully!");
+    setTimeout(() => setFeedbackMsg(""), 3000);
+  };
+
+  return (
+    <div className="space-y-4">
+      {feedbackMsg && (
+        <div className="rounded border border-primary/40 bg-primary/10 p-3 text-center text-xs font-bold text-primary animate-in fade-in">
+          {feedbackMsg}
+        </div>
+      )}
+
+      {/* 1. Profile & Demat Header Banner */}
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex size-14 items-center justify-center rounded-full bg-primary/20 text-xl font-black text-primary border-2 border-primary/40">
+              {profile.name.slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-foreground">{profile.name}</h2>
+                <span className="flex items-center gap-1 rounded bg-bull/15 px-2 py-0.5 text-[0.62rem] font-bold text-bull">
+                  <CheckCircle2 className="size-3" />
+                  {profile.kycStatus}
+                </span>
+                <span className="rounded bg-primary/15 px-2 py-0.5 text-[0.62rem] font-bold text-primary">
+                  {profile.tier}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground font-mono">
+                Client ID: <span className="font-bold text-foreground">{profile.clientId}</span> · CDSL DP ID:{" "}
+                <span className="font-bold text-foreground">{profile.dematDpId}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportTradeBookCSV}
+              className="flex items-center gap-1.5 rounded border border-border bg-secondary/80 px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary transition"
+            >
+              <Download className="size-3.5 text-primary" />
+              Download Trade Book (CSV)
+            </button>
+            <button
+              onClick={() => {
+                if (confirm("Reset paper trading account back to ₹10,00,000 cash balance?")) {
+                  resetPaperPortfolio();
+                  setFeedbackMsg("🟢 Account reset to default ₹10,00,000 capital.");
+                  setTimeout(() => setFeedbackMsg(""), 3000);
+                }
+              }}
+              className="flex items-center gap-1.5 rounded border border-bear/30 bg-bear/10 px-3 py-2 text-xs font-semibold text-bear hover:bg-bear/20 transition"
+            >
+              <RefreshCw className="size-3.5" />
+              Reset Balance
+            </button>
+          </div>
+        </div>
+
+        {/* Credentials Grid */}
+        <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border/60 pt-4 text-xs sm:grid-cols-4">
+          <div className="rounded border border-border/40 bg-secondary/30 p-2.5">
+            <span className="text-[0.62rem] uppercase tracking-wider text-muted-foreground block">PAN (Verified)</span>
+            <span className="font-mono font-bold text-foreground">{profile.panMasked}</span>
+          </div>
+          <div className="rounded border border-border/40 bg-secondary/30 p-2.5">
+            <span className="text-[0.62rem] uppercase tracking-wider text-muted-foreground block">Primary Bank</span>
+            <span className="font-bold text-foreground truncate block">{profile.primaryBank}</span>
+          </div>
+          <div className="rounded border border-border/40 bg-secondary/30 p-2.5">
+            <span className="text-[0.62rem] uppercase tracking-wider text-muted-foreground block">Registered Phone</span>
+            <span className="font-mono font-bold text-foreground">{profile.phone}</span>
+          </div>
+          <div className="rounded border border-border/40 bg-secondary/30 p-2.5">
+            <span className="text-[0.62rem] uppercase tracking-wider text-muted-foreground block">Primary Email</span>
+            <span className="font-mono font-bold text-foreground truncate block">{profile.email}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Margin & Capital Utilization Suite */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Panel title="Capital & Margin Utilization">
+          <div className="space-y-3 text-xs">
+            <div className="flex justify-between items-baseline border-b border-border/40 pb-2">
+              <span className="text-muted-foreground uppercase text-[0.62rem]">Total Account Capital</span>
+              <span className="font-mono font-bold text-base text-foreground">₹{fmt(portfolioValue)}</span>
+            </div>
+            <div className="flex justify-between items-baseline border-b border-border/40 pb-2">
+              <span className="text-muted-foreground uppercase text-[0.62rem]">Available Free Cash</span>
+              <span className="font-mono font-bold text-bull text-sm">₹{fmt(cash)}</span>
+            </div>
+            <div className="flex justify-between items-baseline border-b border-border/40 pb-2">
+              <span className="text-muted-foreground uppercase text-[0.62rem]">Margin Deployed in Equities</span>
+              <span className="font-mono font-bold text-primary text-sm">₹{fmt(usedMargin)}</span>
+            </div>
+
+            {/* Margin Utilization Progress Bar */}
+            <div className="pt-2">
+              <div className="flex justify-between text-[0.65rem] mb-1">
+                <span className="text-muted-foreground uppercase">Margin Utilization</span>
+                <span className="font-mono font-bold text-primary">{marginUtilizationPct}%</span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    marginUtilizationPct > 80 ? "bg-bear" : marginUtilizationPct > 50 ? "bg-amber-500" : "bg-primary"
+                  }`}
+                  style={{ width: `${marginUtilizationPct}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[0.65rem] text-muted-foreground">
+                {marginUtilizationPct < 50
+                  ? "🟢 Healthy capital buffer. No margin call risk."
+                  : marginUtilizationPct < 80
+                  ? "🟡 Moderate leverage. Monitor overnight open positions."
+                  : "🔴 High margin utilization. Consider scaling down exposure."}
+              </p>
+            </div>
+          </div>
+        </Panel>
+
+        {/* Deposit Virtual Funds */}
+        <Panel title="Deposit Margin Capital">
+          <div className="space-y-3 text-xs">
+            <p className="text-muted-foreground text-[0.7rem]">
+              Add virtual funds instantly into your paper margin account via simulated instant UPI / IMPS.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleDeposit(50000)}
+                className="flex-1 py-1.5 rounded border border-bull/30 bg-bull/10 font-mono font-bold text-bull hover:bg-bull/20 transition text-[0.72rem]"
+              >
+                + ₹50,000
+              </button>
+              <button
+                onClick={() => handleDeposit(100000)}
+                className="flex-1 py-1.5 rounded border border-bull/30 bg-bull/10 font-mono font-bold text-bull hover:bg-bull/20 transition text-[0.72rem]"
+              >
+                + ₹1,00,000
+              </button>
+              <button
+                onClick={() => handleDeposit(500000)}
+                className="flex-1 py-1.5 rounded border border-bull/30 bg-bull/10 font-mono font-bold text-bull hover:bg-bull/20 transition text-[0.72rem]"
+              >
+                + ₹5,00,000
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <label className="text-[0.62rem] uppercase tracking-wider text-muted-foreground block mb-1">
+                Custom Deposit (₹ INR)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="1000"
+                  step="5000"
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(Number(e.target.value))}
+                  className="flex-1 rounded border border-border bg-secondary px-3 py-1.5 font-mono text-xs text-foreground"
+                />
+                <button
+                  onClick={() => handleDeposit(depositAmount)}
+                  className="rounded bg-bull px-4 py-1.5 font-bold text-white hover:brightness-110 text-xs"
+                >
+                  Deposit
+                </button>
+              </div>
+            </div>
+          </div>
+        </Panel>
+
+        {/* Withdraw Virtual Funds */}
+        <Panel title="Withdraw Funds to Bank">
+          <div className="space-y-3 text-xs">
+            <p className="text-muted-foreground text-[0.7rem]">
+              Withdraw free unencumbered cash balance directly back to your linked primary bank account:
+            </p>
+            <div className="rounded border border-border/50 bg-secondary/40 p-2 font-mono text-[0.7rem]">
+              Destination: <strong className="text-foreground">{profile.primaryBank}</strong>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleWithdraw(50000)}
+                className="flex-1 py-1.5 rounded border border-border bg-secondary font-mono font-bold text-foreground hover:bg-primary/20 transition text-[0.72rem]"
+              >
+                - ₹50,000
+              </button>
+              <button
+                onClick={() => handleWithdraw(100000)}
+                className="flex-1 py-1.5 rounded border border-border bg-secondary font-mono font-bold text-foreground hover:bg-primary/20 transition text-[0.72rem]"
+              >
+                - ₹1,00,000
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <label className="text-[0.62rem] uppercase tracking-wider text-muted-foreground block mb-1">
+                Custom Withdraw (₹ INR)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="1000"
+                  step="5000"
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(Number(e.target.value))}
+                  className="flex-1 rounded border border-border bg-secondary px-3 py-1.5 font-mono text-xs text-foreground"
+                />
+                <button
+                  onClick={() => handleWithdraw(withdrawAmount)}
+                  className="rounded bg-secondary border border-border px-4 py-1.5 font-bold text-foreground hover:bg-secondary/80 text-xs"
+                >
+                  Withdraw
+                </button>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      </div>
+
+      {/* 3. Trade Book Audit Ledger */}
+      <Panel title={`Trade Book & Activity Ledger (${safeTrades.length} Executed Trades)`}>
+        {safeTrades.length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            No executed orders yet. Place a trade via Dashboard, Stock Terminal, or Watchlist to populate the trade book.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-border text-[0.6rem] uppercase tracking-wider text-muted-foreground">
+                  <th className="py-2">Trade ID</th>
+                  <th className="py-2">Timestamp</th>
+                  <th className="py-2">Symbol</th>
+                  <th className="py-2">Type</th>
+                  <th className="py-2 text-right">Quantity</th>
+                  <th className="py-2 text-right">Price</th>
+                  <th className="py-2 text-right">Total (₹)</th>
+                  <th className="py-2 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40 font-mono">
+                {safeTrades.map((t) => (
+                  <tr key={t.id} className="hover:bg-secondary/20">
+                    <td className="py-2 text-primary font-bold">{t.id}</td>
+                    <td className="py-2 text-muted-foreground text-[0.7rem]">{t.timestamp}</td>
+                    <td className="py-2 font-bold text-foreground">{t.symbol}</td>
+                    <td className="py-2">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[0.65rem] font-bold ${
+                          t.type === "BUY" ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear"
+                        }`}
+                      >
+                        {t.type}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right num">{t.quantity}</td>
+                    <td className="py-2 text-right num">₹{t.price.toFixed(2)}</td>
+                    <td className="py-2 text-right num font-bold text-foreground">
+                      ₹{t.total.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-2 text-right">
+                      <span className="font-bold text-bull text-[0.68rem]">FILLED</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      {/* 4. Exchange Connectivity & Security Audit */}
+      <div className="grid gap-3 sm:grid-cols-4 text-xs">
+        <div className="p-3 bg-secondary/30 rounded border border-border">
+          <span className="text-muted-foreground uppercase text-[0.6rem] block">Active Terminal IP</span>
+          <span className="font-mono font-bold text-foreground text-xs mt-0.5 block">103.21.58.12 (Mumbai DC)</span>
+        </div>
+        <div className="p-3 bg-secondary/30 rounded border border-border">
+          <span className="text-muted-foreground uppercase text-[0.6rem] block">NSE Gateway Latency</span>
+          <span className="font-bold text-bull text-xs mt-0.5 block">1.2 ms (Colo Rack #14)</span>
+        </div>
+        <div className="p-3 bg-secondary/30 rounded border border-border">
+          <span className="text-muted-foreground uppercase text-[0.6rem] block">2FA Authentication</span>
+          <span className="font-bold text-bull text-xs mt-0.5 flex items-center gap-1">
+            <ShieldCheck className="size-3.5" /> TOTP / Biometric Active
+          </span>
+        </div>
+        <div className="p-3 bg-secondary/30 rounded border border-border">
+          <span className="text-muted-foreground uppercase text-[0.6rem] block">Regulatory Jurisdiction</span>
+          <span className="font-bold text-foreground text-xs mt-0.5 block">SEBI Registered Institutional</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   12. SETTINGS VIEW (5-TAB INSTITUTIONAL CONTROLS SUITE)
    ========================================================================= */
 function SettingsView() {
+  const { preferences, updatePreferences, addNotification } = useUserAccount();
+  const [activeSubTab, setActiveSubTab] = useState<"BROKER" | "RISK" | "PREFS" | "AI" | "UNIVERSE">(() => {
+    if (typeof window !== "undefined" && window.location.hash.includes(":")) {
+      const sub = window.location.hash.split(":")[1]?.toUpperCase();
+      if (["BROKER", "RISK", "PREFS", "AI", "UNIVERSE"].includes(sub)) {
+        return sub as any;
+      }
+    }
+    return "BROKER";
+  });
+
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("user_groq_api_key") || "");
   const [statusMsg, setStatusMsg] = useState("");
   const [testing, setTesting] = useState(false);
@@ -1058,6 +1489,10 @@ function SettingsView() {
   const [brokerData, setBrokerData] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
+
+  // Risk state forms
+  const [dailyLossInput, setDailyLossInput] = useState<number>(preferences.maxDailyLossLimit);
+  const [maxOrderInput, setMaxOrderInput] = useState<number>(preferences.maxSingleOrderValue);
 
   const fetchStatsAndModels = async () => {
     try {
@@ -1082,7 +1517,7 @@ function SettingsView() {
   }, []);
 
   const handleCopyWebhook = () => {
-    const url = `${window.location.origin}/api/webhook/order`;
+    const url = `${typeof window !== "undefined" ? window.location.origin : "http://localhost:5000"}/api/webhook/order`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -1099,12 +1534,13 @@ function SettingsView() {
           action: "BUY",
           quantity: 5,
           price: 2850.0,
-          source: "Settings Test Console"
+          source: "Settings Test Console",
         }),
       });
       const data = await res.json();
       if (data.status === "success") {
         setStatusMsg(`🟢 Webhook Executed: ${data.message}`);
+        playTradeSound();
         fetchStatsAndModels();
       } else {
         setStatusMsg("🔴 Webhook execution returned error.");
@@ -1193,195 +1629,125 @@ function SettingsView() {
     }
   };
 
+  const toggleKillSwitch = () => {
+    const nextState = !preferences.killSwitchEnabled;
+    updatePreferences({ killSwitchEnabled: nextState });
+    addNotification(
+      nextState ? "KILL SWITCH ACTIVATED" : "Kill Switch Deactivated",
+      nextState
+        ? "Trading is blocked. All order executions are suspended."
+        : "Order routing has been restored to normal operation.",
+      "RISK"
+    );
+    setStatusMsg(
+      nextState ? "🚨 EMERGENCY KILL SWITCH ARMED: TRADING DISABLED" : "🟢 Kill Switch disarmed. Trading active."
+    );
+    setTimeout(() => setStatusMsg(""), 4000);
+  };
+
+  const saveRiskSettings = () => {
+    updatePreferences({
+      maxDailyLossLimit: dailyLossInput,
+      maxSingleOrderValue: maxOrderInput,
+    });
+    setStatusMsg("🟢 Risk limits updated successfully!");
+    setTimeout(() => setStatusMsg(""), 3000);
+  };
+
   return (
     <div className="space-y-4">
-      {/* 1. Auto-Scaling Universe Control Panel */}
-      <Panel title="Auto-Scaling Company Universe (NSE/BSE Auto Discovery)">
-        <div className="space-y-3 text-xs">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <div className="p-3 bg-secondary/30 rounded border border-border">
-              <p className="text-muted-foreground uppercase text-[0.6rem]">Total Discovered Equities</p>
-              <p className="num text-lg font-bold text-primary">{universeStats?.total_symbols || "2,587"} Active</p>
-            </div>
-            <div className="p-3 bg-secondary/30 rounded border border-border">
-              <p className="text-muted-foreground uppercase text-[0.6rem]">2-Year Historical Backfill</p>
-              <p className="num text-lg font-bold text-bull">{universeStats?.backfilled_symbols || "2,587"} Complete</p>
-            </div>
-            <div className="p-3 bg-secondary/30 rounded border border-border col-span-2 md:col-span-1">
-              <p className="text-muted-foreground uppercase text-[0.6rem]">Master Provider</p>
-              <p className="text-xs font-bold text-foreground">NSE/BSE Master CSV + yfinance</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={refreshUniverse}
-              className="flex-1 py-2 bg-primary/20 text-primary border border-primary/40 font-bold rounded uppercase tracking-wider hover:bg-primary/30"
-            >
-              🔄 Refresh NSE/BSE Universe
-            </button>
-            <button
-              onClick={triggerRetraining}
-              disabled={retraining}
-              className="flex-1 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider disabled:opacity-50 hover:brightness-110"
-            >
-              {retraining ? "Retraining Candidate..." : "⚡ Run Auto-Training Pipeline"}
-            </button>
-          </div>
+      {/* Settings Navigation Bar */}
+      <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 text-xs">
+        {(
+          [
+            { id: "BROKER", label: "Broker Gateways", icon: Zap },
+            { id: "RISK", label: "Risk & Kill Switch", icon: ShieldAlert },
+            { id: "PREFS", label: "Trading Preferences", icon: Sliders },
+            { id: "AI", label: "AI Dual Engine & Models", icon: Sparkles },
+            { id: "UNIVERSE", label: "NSE/BSE Universe", icon: Globe },
+          ] as const
+        ).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setActiveSubTab(id)}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-2 font-bold transition text-[0.68rem] uppercase tracking-wider ${
+              activeSubTab === id
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+            }`}
+          >
+            <Icon className="size-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {statusMsg && (
+        <div className="rounded border border-primary/40 bg-primary/10 p-2.5 text-center font-mono text-[0.72rem] font-bold text-primary animate-in fade-in">
+          {statusMsg}
         </div>
-      </Panel>
+      )}
 
-      {/* 2. Model Registry & Purged CV Gate */}
-      <Panel title="Model Registry & Purged CV Validation Gate">
-        <div className="space-y-3 text-xs">
-          <div className="p-3 bg-primary/10 border border-primary/30 rounded">
-            <p className="font-bold text-primary mb-1">
-              Active Live Model Pointer: <span className="font-mono underline">{modelData?.active_version || "v_baseline_v1"}</span>
-            </p>
-            <p className="text-muted-foreground text-[0.68rem]">
-              Hit Rate: <strong className="text-bull">{modelData?.current_info?.metrics?.hit_rate || 0.582}</strong> · Sharpe Ratio: <strong className="text-primary">{modelData?.current_info?.metrics?.sharpe_ratio || 1.45}</strong> · Sortino Ratio: <strong className="text-violet">{modelData?.current_info?.metrics?.sortino_ratio || 1.82}</strong>
-            </p>
-          </div>
+      {/* SUBTAB 1: BROKER GATEWAYS & WEBHOOK */}
+      {activeSubTab === "BROKER" && (
+        <div className="space-y-4">
+          <Panel title="TradingView & Algorithmic Broker Webhook Bridge">
+            <div className="space-y-4 text-xs">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="p-3 bg-secondary/30 rounded border border-border">
+                  <span className="text-muted-foreground uppercase text-[0.6rem] block">Active Execution Gateway</span>
+                  <span className="font-bold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
+                    <span className="size-2 rounded-full bg-bull animate-pulse" />
+                    {brokerData?.config?.broker_name || "Dhan Sandbox Gateway"}
+                  </span>
+                </div>
+                <div className="p-3 bg-secondary/30 rounded border border-border">
+                  <span className="text-muted-foreground uppercase text-[0.6rem] block">Environment & Account</span>
+                  <span className="font-mono font-bold text-primary text-sm mt-0.5 block">
+                    {brokerData?.config?.client_id || "DHAN_PAPER_98214"}
+                  </span>
+                </div>
+                <div className="p-3 bg-secondary/30 rounded border border-border">
+                  <span className="text-muted-foreground uppercase text-[0.6rem] block">Gateway Latency</span>
+                  <span className="font-bold text-bull text-sm mt-0.5 block">
+                    {brokerData?.config?.ping_ms || 28} ms
+                  </span>
+                </div>
+              </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border text-[0.6rem] text-muted-foreground uppercase">
-                  <th className="py-2">Version</th>
-                  <th className="py-2">Status</th>
-                  <th className="py-2">Hit Rate</th>
-                  <th className="py-2">Sharpe</th>
-                  <th className="py-2">Sortino</th>
-                  <th className="py-2 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {modelData?.history?.map((m: any) => (
-                  <tr key={m.version} className="hover:bg-secondary/20">
-                    <td className="py-2 font-mono font-bold text-primary">{m.version}</td>
-                    <td className="py-2">
-                      {m.is_active ? (
-                        <span className="bg-bull/15 text-bull px-2 py-0.5 rounded font-bold">ACTIVE LIVE</span>
-                      ) : (
-                        <span className="bg-secondary text-muted-foreground px-2 py-0.5 rounded">Candidate / Archived</span>
-                      )}
-                    </td>
-                    <td className="num py-2 text-bull">{m.metrics?.hit_rate || "N/A"}</td>
-                    <td className="num py-2">{m.metrics?.sharpe_ratio || "N/A"}</td>
-                    <td className="num py-2 text-violet">{m.metrics?.sortino_ratio || "N/A"}</td>
-                    <td className="py-2 text-right">
-                      {!m.is_active && (
-                        <button
-                          onClick={() => executeRollback(m.version)}
-                          className="px-2 py-1 bg-secondary hover:bg-primary/20 text-xs font-bold rounded border border-border"
-                        >
-                          Rollback
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </Panel>
+              <div>
+                <label className="font-bold text-muted-foreground uppercase text-[0.62rem] block mb-1">
+                  TradingView Webhook Listener URL
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={`${typeof window !== "undefined" ? window.location.origin : "http://localhost:5000"}/api/webhook/order`}
+                    className="flex-1 rounded border border-border bg-secondary p-2.5 font-mono text-[0.75rem] text-foreground outline-none"
+                  />
+                  <button
+                    onClick={handleCopyWebhook}
+                    className="flex items-center gap-1 px-4 py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider text-xs transition"
+                  >
+                    {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                  <button
+                    onClick={handleSendTestWebhook}
+                    disabled={sendingTest}
+                    className="flex items-center gap-1 px-4 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider text-xs transition disabled:opacity-50"
+                  >
+                    <Zap className="size-3.5" />
+                    {sendingTest ? "Firing..." : "Send Test Order"}
+                  </button>
+                </div>
+              </div>
 
-      {/* 3. API Preferences Panel */}
-      <Panel title="Custom AI API Key Manager">
-        <div className="space-y-4 text-xs max-w-lg">
-          <div>
-            <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">Custom Groq API Key</label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Paste your key: gsk_..."
-              className="w-full rounded border border-border bg-secondary p-2.5 mt-1 font-mono text-foreground"
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={saveApiKey}
-              className="flex-1 py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider"
-            >
-              Save Key
-            </button>
-            <button
-              onClick={testApiKey}
-              disabled={testing}
-              className="flex-1 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider disabled:opacity-50"
-            >
-              {testing ? "Testing..." : "Test API Connection"}
-            </button>
-          </div>
-
-          {statusMsg && (
-            <p className="p-2.5 bg-secondary border border-border rounded font-mono text-[0.68rem] text-center font-bold">
-              {statusMsg}
-            </p>
-          )}
-        </div>
-      </Panel>
-
-      {/* 4. TradingView Webhook & Broker Execution Gateway */}
-      <Panel title="TradingView & Algorithmic Broker Webhook Bridge">
-        <div className="space-y-4 text-xs">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="p-3 bg-secondary/30 rounded border border-border">
-              <span className="text-muted-foreground uppercase text-[0.6rem] block">Active Execution Gateway</span>
-              <span className="font-bold text-foreground text-sm flex items-center gap-1.5 mt-0.5">
-                <span className="size-2 rounded-full bg-bull animate-pulse" />
-                {brokerData?.config?.broker_name || "Dhan Sandbox Gateway"}
-              </span>
-            </div>
-            <div className="p-3 bg-secondary/30 rounded border border-border">
-              <span className="text-muted-foreground uppercase text-[0.6rem] block">Environment & Account</span>
-              <span className="font-mono font-bold text-primary text-sm mt-0.5 block">
-                {brokerData?.config?.client_id || "DHAN_PAPER_98214"}
-              </span>
-            </div>
-            <div className="p-3 bg-secondary/30 rounded border border-border">
-              <span className="text-muted-foreground uppercase text-[0.6rem] block">Gateway Latency</span>
-              <span className="font-bold text-bull text-sm mt-0.5 block">
-                {brokerData?.config?.ping_ms || 28} ms
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <label className="font-bold text-muted-foreground uppercase text-[0.62rem] block mb-1">
-              TradingView Webhook Listener URL
-            </label>
-            <div className="flex gap-2">
-              <input
-                readOnly
-                value={`${typeof window !== "undefined" ? window.location.origin : "http://localhost:5000"}/api/webhook/order`}
-                className="flex-1 rounded border border-border bg-secondary p-2.5 font-mono text-[0.75rem] text-foreground outline-none"
-              />
-              <button
-                onClick={handleCopyWebhook}
-                className="flex items-center gap-1 px-4 py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider text-xs transition"
-              >
-                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied ? "Copied!" : "Copy"}
-              </button>
-              <button
-                onClick={handleSendTestWebhook}
-                disabled={sendingTest}
-                className="flex items-center gap-1 px-4 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider text-xs transition disabled:opacity-50"
-              >
-                <Zap className="size-3.5" />
-                {sendingTest ? "Firing..." : "Send Test Order"}
-              </button>
-            </div>
-          </div>
-
-          <div className="p-3 bg-secondary/20 rounded border border-border/80">
-            <span className="text-muted-foreground font-semibold uppercase text-[0.62rem] block mb-1">
-              Recommended TradingView Alert Message Body (JSON Format):
-            </span>
-            <pre className="font-mono text-[0.68rem] text-primary bg-background/80 p-2.5 rounded border border-border/50 overflow-x-auto">
+              <div className="p-3 bg-secondary/20 rounded border border-border/80">
+                <span className="text-muted-foreground font-semibold uppercase text-[0.62rem] block mb-1">
+                  Recommended TradingView Alert Message Body (JSON Format):
+                </span>
+                <pre className="font-mono text-[0.68rem] text-primary bg-background/80 p-2.5 rounded border border-border/50 overflow-x-auto">
 {`{
   "symbol": "{{ticker}}",
   "action": "{{strategy.order.action}}",
@@ -1389,46 +1755,360 @@ function SettingsView() {
   "price": {{close}},
   "source": "TradingView Alert Webhook"
 }`}
-            </pre>
+                </pre>
+              </div>
+
+              {brokerData?.recent_webhooks && brokerData.recent_webhooks.length > 0 && (
+                <div>
+                  <span className="text-muted-foreground font-semibold uppercase text-[0.62rem] block mb-2">
+                    Recent Inbound Webhook Execution Log ({brokerData.recent_webhooks.length} Events)
+                  </span>
+                  <table className="w-full text-[0.72rem]">
+                    <thead>
+                      <tr className="border-b border-border text-muted-foreground text-[0.6rem] uppercase">
+                        <th className="py-1.5 text-left">Order ID</th>
+                        <th className="py-1.5 text-left">Timestamp</th>
+                        <th className="py-1.5 text-left">Ticker</th>
+                        <th className="py-1.5 text-left">Action</th>
+                        <th className="py-1.5 text-right">Qty</th>
+                        <th className="py-1.5 text-right">Price</th>
+                        <th className="py-1.5 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40 font-mono">
+                      {brokerData.recent_webhooks.map((w: any) => (
+                        <tr key={w.order_id} className="hover:bg-secondary/20">
+                          <td className="py-1.5 text-primary font-bold">{w.order_id}</td>
+                          <td className="py-1.5 text-muted-foreground">{w.timestamp}</td>
+                          <td className="py-1.5 font-bold text-foreground">{w.symbol}</td>
+                          <td className={`py-1.5 font-bold ${w.action === "BUY" ? "text-bull" : "text-bear"}`}>
+                            {w.action}
+                          </td>
+                          <td className="py-1.5 text-right num">{w.quantity}</td>
+                          <td className="py-1.5 text-right num">₹{w.price}</td>
+                          <td className="py-1.5 text-right text-bull font-bold">{w.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {/* SUBTAB 2: RISK & KILL SWITCH */}
+      {activeSubTab === "RISK" && (
+        <div className="space-y-4">
+          <div
+            className={`rounded-lg border p-4 transition-all ${
+              preferences.killSwitchEnabled
+                ? "border-bear bg-bear/15 text-bear"
+                : "border-border bg-card text-foreground"
+            }`}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="size-5 text-bear" />
+                  <h3 className="text-sm font-bold uppercase tracking-wider">
+                    {preferences.killSwitchEnabled ? "EMERGENCY KILL SWITCH ACTIVE" : "Emergency Kill Switch"}
+                  </h3>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Instantly suspend all new incoming orders, halt algorithmic triggers, and protect open margin balance.
+                </p>
+              </div>
+              <button
+                onClick={toggleKillSwitch}
+                className={`rounded px-5 py-2.5 font-mono text-xs font-bold uppercase tracking-wider transition ${
+                  preferences.killSwitchEnabled
+                    ? "bg-bull text-white hover:brightness-110"
+                    : "bg-bear text-white hover:brightness-110"
+                }`}
+              >
+                {preferences.killSwitchEnabled ? "Disarm Kill Switch" : "ACTIVATE KILL SWITCH"}
+              </button>
+            </div>
           </div>
 
-          {brokerData?.recent_webhooks && brokerData.recent_webhooks.length > 0 && (
-            <div>
-              <span className="text-muted-foreground font-semibold uppercase text-[0.62rem] block mb-2">
-                Recent Inbound Webhook Execution Log ({brokerData.recent_webhooks.length} Events)
-              </span>
-              <table className="w-full text-[0.72rem]">
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground text-[0.6rem] uppercase">
-                    <th className="py-1.5 text-left">Order ID</th>
-                    <th className="py-1.5 text-left">Timestamp</th>
-                    <th className="py-1.5 text-left">Ticker</th>
-                    <th className="py-1.5 text-left">Action</th>
-                    <th className="py-1.5 text-right">Qty</th>
-                    <th className="py-1.5 text-right">Price</th>
-                    <th className="py-1.5 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40 font-mono">
-                  {brokerData.recent_webhooks.map((w: any) => (
-                    <tr key={w.order_id} className="hover:bg-secondary/20">
-                      <td className="py-1.5 text-primary font-bold">{w.order_id}</td>
-                      <td className="py-1.5 text-muted-foreground">{w.timestamp}</td>
-                      <td className="py-1.5 font-bold text-foreground">{w.symbol}</td>
-                      <td className={`py-1.5 font-bold ${w.action === "BUY" ? "text-bull" : "text-bear"}`}>
-                        {w.action}
-                      </td>
-                      <td className="py-1.5 text-right num">{w.quantity}</td>
-                      <td className="py-1.5 text-right num">₹{w.price}</td>
-                      <td className="py-1.5 text-right text-bull font-bold">{w.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <Panel title="Institutional Risk Boundaries & Limits">
+            <div className="space-y-4 text-xs max-w-xl">
+              <div>
+                <label className="text-[0.65rem] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+                  Maximum Daily Loss Limit (₹ INR)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    step="5000"
+                    value={dailyLossInput}
+                    onChange={(e) => setDailyLossInput(Number(e.target.value))}
+                    className="flex-1 rounded border border-border bg-secondary p-2.5 font-mono text-xs text-foreground"
+                  />
+                  <button
+                    onClick={saveRiskSettings}
+                    className="rounded bg-primary px-4 py-2 font-bold text-primary-foreground text-xs uppercase tracking-wider"
+                  >
+                    Update
+                  </button>
+                </div>
+                <p className="mt-1 text-[0.65rem] text-muted-foreground">
+                  Current Limit: ₹{preferences.maxDailyLossLimit.toLocaleString("en-IN")}. If realized losses reach this threshold, auto square-off initiates.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[0.65rem] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+                  Maximum Single Order Value Cap (₹ INR)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    step="10000"
+                    value={maxOrderInput}
+                    onChange={(e) => setMaxOrderInput(Number(e.target.value))}
+                    className="flex-1 rounded border border-border bg-secondary p-2.5 font-mono text-xs text-foreground"
+                  />
+                  <button
+                    onClick={saveRiskSettings}
+                    className="rounded bg-primary px-4 py-2 font-bold text-primary-foreground text-xs uppercase tracking-wider"
+                  >
+                    Update
+                  </button>
+                </div>
+                <p className="mt-1 text-[0.65rem] text-muted-foreground">
+                  Prevents fat-finger order sizes larger than ₹{preferences.maxSingleOrderValue.toLocaleString("en-IN")}.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="rounded border border-border/50 bg-secondary/30 p-3">
+                  <span className="text-[0.62rem] uppercase text-muted-foreground block">Auto Square-Off Time</span>
+                  <span className="font-mono font-bold text-foreground text-sm block mt-0.5">
+                    {preferences.autoSquareOffTime}
+                  </span>
+                </div>
+                <div className="rounded border border-border/50 bg-secondary/30 p-3">
+                  <span className="text-[0.62rem] uppercase text-muted-foreground block">Slippage Tolerance</span>
+                  <span className="font-mono font-bold text-bull text-sm block mt-0.5">
+                    {preferences.slippageTolerancePct}%
+                  </span>
+                </div>
+              </div>
             </div>
-          )}
+          </Panel>
         </div>
-      </Panel>
+      )}
+
+      {/* SUBTAB 3: PREFERENCES & AUDIO */}
+      {activeSubTab === "PREFS" && (
+        <Panel title="Terminal Audio & Execution Defaults">
+          <div className="space-y-4 text-xs max-w-xl">
+            <div className="flex items-center justify-between rounded border border-border/60 bg-secondary/20 p-3">
+              <div>
+                <p className="font-bold text-foreground">Trade Execution Sound FX</p>
+                <p className="text-[0.68rem] text-muted-foreground">
+                  Play synthetic dual-tone Web Audio chimes upon order completion.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => playTradeSound()}
+                  className="rounded border border-border bg-secondary px-2.5 py-1.5 font-bold text-primary text-[0.68rem] hover:bg-secondary/80 flex items-center gap-1"
+                >
+                  <Volume2 className="size-3" /> Test Chime
+                </button>
+                <button
+                  onClick={() => updatePreferences({ soundEffects: !preferences.soundEffects })}
+                  className={`rounded px-3 py-1.5 font-bold text-xs uppercase tracking-wider ${
+                    preferences.soundEffects ? "bg-bull text-white" : "bg-secondary text-muted-foreground border border-border"
+                  }`}
+                >
+                  {preferences.soundEffects ? "ON" : "OFF"}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded border border-border/60 bg-secondary/20 p-3">
+              <div>
+                <p className="font-bold text-foreground">Default Product Type</p>
+                <p className="text-[0.68rem] text-muted-foreground">
+                  Pre-selected intraday vs delivery order type.
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                {(["CNC", "MIS", "NRML"] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => updatePreferences({ defaultProductType: type })}
+                    className={`rounded px-3 py-1 font-bold text-xs ${
+                      preferences.defaultProductType === type
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-muted-foreground border border-border"
+                    }`}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded border border-border/60 bg-secondary/20 p-3">
+              <div>
+                <p className="font-bold text-foreground">Default NIFTY Index Contract Lots</p>
+                <p className="text-[0.68rem] text-muted-foreground">Lot size multiplier for Options & Futures.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {[1, 2, 5, 10].map((lots) => (
+                  <button
+                    key={lots}
+                    onClick={() => updatePreferences({ defaultNiftyLots: lots })}
+                    className={`rounded px-2.5 py-1 font-bold text-xs ${
+                      preferences.defaultNiftyLots === lots
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary text-muted-foreground border border-border"
+                    }`}
+                  >
+                    {lots} {lots === 1 ? "Lot" : "Lots"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      {/* SUBTAB 4: AI DUAL-ENGINE & MODEL REGISTRY */}
+      {activeSubTab === "AI" && (
+        <div className="space-y-4">
+          <Panel title="Custom AI API Key Manager">
+            <div className="space-y-4 text-xs max-w-lg">
+              <div>
+                <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">Custom Groq API Key</label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Paste your key: gsk_..."
+                  className="w-full rounded border border-border bg-secondary p-2.5 mt-1 font-mono text-foreground"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={saveApiKey}
+                  className="flex-1 py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider"
+                >
+                  Save Key
+                </button>
+                <button
+                  onClick={testApiKey}
+                  disabled={testing}
+                  className="flex-1 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider disabled:opacity-50"
+                >
+                  {testing ? "Testing..." : "Test API Connection"}
+                </button>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="Model Registry & Purged CV Validation Gate">
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-primary/10 border border-primary/30 rounded flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <p className="font-bold text-primary mb-1">
+                    Active Live Model Pointer: <span className="font-mono underline">{modelData?.active_version || "v_baseline_v1"}</span>
+                  </p>
+                  <p className="text-muted-foreground text-[0.68rem]">
+                    Hit Rate: <strong className="text-bull">{modelData?.current_info?.metrics?.hit_rate || 0.582}</strong> · Sharpe Ratio: <strong className="text-primary">{modelData?.current_info?.metrics?.sharpe_ratio || 1.45}</strong> · Sortino Ratio: <strong className="text-violet">{modelData?.current_info?.metrics?.sortino_ratio || 1.82}</strong>
+                  </p>
+                </div>
+                <button
+                  onClick={triggerRetraining}
+                  disabled={retraining}
+                  className="py-1.5 px-4 bg-bull text-white font-bold rounded uppercase tracking-wider disabled:opacity-50 hover:brightness-110 text-xs shrink-0"
+                >
+                  {retraining ? "Retraining Candidate..." : "⚡ Run Auto-Training Pipeline"}
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-border text-[0.6rem] text-muted-foreground uppercase">
+                      <th className="py-2">Version</th>
+                      <th className="py-2">Status</th>
+                      <th className="py-2">Hit Rate</th>
+                      <th className="py-2">Sharpe</th>
+                      <th className="py-2">Sortino</th>
+                      <th className="py-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {modelData?.history?.map((m: any) => (
+                      <tr key={m.version} className="hover:bg-secondary/20">
+                        <td className="py-2 font-mono font-bold text-primary">{m.version}</td>
+                        <td className="py-2">
+                          {m.is_active ? (
+                            <span className="bg-bull/15 text-bull px-2 py-0.5 rounded font-bold">ACTIVE LIVE</span>
+                          ) : (
+                            <span className="bg-secondary text-muted-foreground px-2 py-0.5 rounded">Candidate / Archived</span>
+                          )}
+                        </td>
+                        <td className="num py-2 text-bull">{m.metrics?.hit_rate || "N/A"}</td>
+                        <td className="num py-2">{m.metrics?.sharpe_ratio || "N/A"}</td>
+                        <td className="num py-2 text-violet">{m.metrics?.sortino_ratio || "N/A"}</td>
+                        <td className="py-2 text-right">
+                          {!m.is_active && (
+                            <button
+                              onClick={() => executeRollback(m.version)}
+                              className="px-2 py-1 bg-secondary hover:bg-primary/20 text-xs font-bold rounded border border-border"
+                            >
+                              Rollback
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {/* SUBTAB 5: NSE/BSE UNIVERSE */}
+      {activeSubTab === "UNIVERSE" && (
+        <Panel title="Auto-Scaling Company Universe (NSE/BSE Auto Discovery)">
+          <div className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <div className="p-3 bg-secondary/30 rounded border border-border">
+                <p className="text-muted-foreground uppercase text-[0.6rem]">Total Discovered Equities</p>
+                <p className="num text-lg font-bold text-primary">{universeStats?.total_symbols || "2,587"} Active</p>
+              </div>
+              <div className="p-3 bg-secondary/30 rounded border border-border">
+                <p className="text-muted-foreground uppercase text-[0.6rem]">2-Year Historical Backfill</p>
+                <p className="num text-lg font-bold text-bull">{universeStats?.backfilled_symbols || "2,587"} Complete</p>
+              </div>
+              <div className="p-3 bg-secondary/30 rounded border border-border col-span-2 md:col-span-1">
+                <p className="text-muted-foreground uppercase text-[0.6rem]">Master Provider</p>
+                <p className="text-xs font-bold text-foreground">NSE/BSE Master CSV + yfinance</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={refreshUniverse}
+                className="flex-1 py-2 bg-primary/20 text-primary border border-primary/40 font-bold rounded uppercase tracking-wider hover:bg-primary/30"
+              >
+                🔄 Refresh NSE/BSE Universe
+              </button>
+            </div>
+          </div>
+        </Panel>
+      )}
     </div>
   );
 }
