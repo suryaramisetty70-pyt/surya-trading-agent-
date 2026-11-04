@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import { usePaperTrading } from "@/lib/paperTrading";
 import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
 import OptionChainPanel from "@/components/market/OptionChainPanel";
+import Globe3D from "@/components/market/Globe3D";
+import GalaxyCanvas from "@/components/market/GalaxyCanvas";
 import {
   LayoutDashboard,
   Sparkles,
@@ -26,7 +28,8 @@ import {
   Copy,
   Check,
   RefreshCw,
-  Zap
+  Zap,
+  Orbit
 } from "lucide-react";
 import { TopBar, TickerTape } from "@/components/market/Chrome";
 import { Delta, Gauge, LivePrice, Panel, Sparkline } from "@/components/market/primitives";
@@ -51,6 +54,7 @@ const SIDE = [
   { label: "AI Studio", Icon: Sparkles },
   { label: "Markets", Icon: Globe },
   { label: "Options", Icon: Layers },
+  { label: "3D Galaxy", Icon: Orbit },
   { label: "Watchlist", Icon: Star },
   { label: "Portfolios", Icon: PieChart },
   { label: "Orders", Icon: FileText },
@@ -107,6 +111,7 @@ function Terminal() {
           {active === "AI Studio" && <AiStudioView />}
           {active === "Markets" && <MarketsView />}
           {active === "Options" && <OptionChainPanel ticker="NIFTY" />}
+          {active === "3D Galaxy" && <GalaxyTerminalView />}
           {active === "Watchlist" && <WatchlistView />}
           {active === "Portfolios" && <PortfoliosView />}
           {active === "Orders" && <OrdersView />}
@@ -183,7 +188,21 @@ function DashboardView() {
         })}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {/* 1. 3D Rotating Market Globe */}
+        <Panel title="3D Market Breadth Globe" className="relative min-h-[250px] flex flex-col justify-between overflow-hidden">
+          <div className="relative h-44 w-full flex items-center justify-center">
+            <Globe3D className="absolute inset-0 h-full w-full" />
+          </div>
+          <div className="flex items-center justify-between text-[0.62rem] text-muted-foreground border-t border-border/50 pt-2 mt-1">
+            <span>Fibonacci Point Projection</span>
+            <span className="text-bull font-bold flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-bull animate-pulse" /> LIVE 3D
+            </span>
+          </div>
+        </Panel>
+
+        {/* 2. Market Movers */}
         <Panel title="Market Movers">
           <div className="space-y-3 text-xs">
             <p className="font-bold text-bull uppercase">Top Gainers</p>
@@ -203,6 +222,7 @@ function DashboardView() {
           </div>
         </Panel>
 
+        {/* 3. Sector Performance */}
         <Panel title="Sector Performance">
           <div className="grid grid-cols-2 gap-2 text-xs">
             {SECTOR_PERF.slice(0, 8).map((s) => (
@@ -214,6 +234,7 @@ function DashboardView() {
           </div>
         </Panel>
 
+        {/* 4. Institutional Cash Activity */}
         <Panel title="Institutional Cash Activity (FII / DII)">
           <table className="w-full text-xs">
             <thead>
@@ -230,6 +251,75 @@ function DashboardView() {
             </tbody>
           </table>
         </Panel>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   1.5. 3D GALAXY VIEW (INTERACTIVE 3D SECTOR CONSTELLATION MAP)
+   ========================================================================= */
+function GalaxyTerminalView() {
+  const [sector, setSector] = useState("All Sectors");
+  const [picked, setPicked] = useState<string | null>("RELIANCE");
+  const q = picked ? BASE_QUOTES.find((s) => s.symbol === picked) : undefined;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+            <Orbit className="size-4 animate-spin text-primary" style={{ animationDuration: "12s" }} />
+            3D Market Galaxy — Sector Constellation Map
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Drag to rotate the 3D starfield, scroll to zoom, click any star to inspect equity
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {["All Sectors", "Technology", "Financials", "Energy", "Healthcare"].map((s) => (
+            <button
+              key={s}
+              onClick={() => setSector(s)}
+              className={`px-2.5 py-1 rounded text-xs font-semibold transition ${
+                sector === s ? "bg-primary text-primary-foreground font-bold" : "bg-secondary text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative h-[550px] w-full rounded-xl border border-border overflow-hidden bg-[#070b14]">
+        <GalaxyCanvas activeSector={sector} onPick={(sym) => setPicked(sym)} />
+
+        {/* Floating Stock Inspector Overlay */}
+        {q && (
+          <div className="absolute top-4 left-4 p-4 rounded-xl border border-border/80 bg-background/85 backdrop-blur-md shadow-2xl min-w-[220px]">
+            <span className="text-[0.62rem] text-muted-foreground uppercase block font-semibold">Selected Star</span>
+            <div className="flex items-baseline justify-between mt-1">
+              <span className="text-base font-bold text-primary">{q.symbol}</span>
+              <span className={`text-xs num font-bold ${q.changePct >= 0 ? "text-bull" : "text-bear"}`}>
+                {q.changePct >= 0 ? "+" : ""}{q.changePct}%
+              </span>
+            </div>
+            <p className="text-xs text-foreground font-semibold mt-0.5">{q.name}</p>
+            <p className="text-[0.68rem] text-muted-foreground">{q.sector} · ₹{fmt(q.price)}</p>
+            <Link
+              to="/stock/$symbol"
+              params={{ symbol: q.symbol }}
+              className="mt-3 block w-full text-center py-1.5 rounded bg-primary text-primary-foreground font-bold text-xs uppercase tracking-wider"
+            >
+              Deep Analysis →
+            </Link>
+          </div>
+        )}
+
+        <div className="absolute bottom-3 right-3 text-[0.62rem] text-muted-foreground bg-background/70 px-2.5 py-1 rounded border border-border/50 backdrop-blur">
+          Interactive 3D Engine · Drag to Orbit · Scroll to Zoom
+        </div>
       </div>
     </div>
   );
