@@ -276,7 +276,7 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
             return default
 
     symbols_to_try = []
-    if "." in raw_input or "-" in raw_input:
+    if "." in raw_input or "-" in raw_input or raw_input.startswith("^"):
         symbols_to_try = [raw_input]
     else:
         symbols_to_try = [f"{raw_input}.NS", raw_input, f"{raw_input}.BO"]
