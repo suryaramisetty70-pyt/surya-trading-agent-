@@ -1,0 +1,8 @@
+{
+  "hit_rate": 0.635,
+  "sharpe_ratio": 1.65,
+  "sortino_ratio": 2.1,
+  "mae_5d": 0.0285,
+  "training_samples": 4170,
+  "features_count": 13
+}

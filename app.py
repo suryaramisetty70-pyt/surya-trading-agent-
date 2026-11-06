@@ -81,7 +81,7 @@ def analyze_stock():
     ticker = payload.get('ticker', 'RELIANCE').strip().upper()
     language = payload.get('language', 'English').strip()
     model = payload.get('model', 'llama-3.3-70b-versatile').strip()
-    custom_key = payload.get('api_key', '').strip()
+    custom_key = payload.get('api_key', '').strip() or request.headers.get('X-AI-Key', '').strip() or request.headers.get('X-Groq-Key', '').strip()
     api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
 
     if not api_key or api_key == "PASTE_YOUR_KEY_HERE":
@@ -127,12 +127,20 @@ def refresh_universe_route():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-@app.route('/api/predict', methods=['GET'])
+@app.route('/api/predict', methods=['GET', 'POST'])
 def predict_stock_route():
-    ticker = request.args.get('ticker', 'TCS').strip().upper()
+    body = request.get_json(silent=True) or {}
+    ticker = request.args.get('ticker') or body.get('ticker', 'TCS')
+    ticker = str(ticker).strip().upper()
+    custom_key = (
+        request.headers.get('X-AI-Key', '').strip()
+        or request.headers.get('X-Groq-Key', '').strip()
+        or request.args.get('api_key', '').strip()
+        or body.get('api_key', '').strip()
+    )
     try:
         from ml_pipeline import predict_stock
-        pred = predict_stock(ticker)
+        pred = predict_stock(ticker, custom_api_key=custom_key)
         return jsonify({'status': 'success', 'data': pred})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -219,7 +227,7 @@ def rollback_model_route():
 @app.route('/api/ai-status', methods=['GET', 'POST'])
 def ai_status_route():
     payload = request.json or {} if request.is_json else {}
-    custom_key = payload.get('api_key', '').strip()
+    custom_key = payload.get('api_key', '').strip() or request.headers.get('X-AI-Key', '').strip() or request.headers.get('X-Groq-Key', '').strip()
     api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
 
     if not api_key:

@@ -5,8 +5,8 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 406.2,
-    "details": "Status 200, HTML/text response (961 bytes, 406.2ms)",
+    "elapsed_ms": 75.99,
+    "details": "Status 200, HTML/text response (999 bytes, 75.99ms)",
     "sample": "<!DOCTYPE html>\n<html lang=\"en\" class=\"dark\">\n  <head>\n    <script type=\"module\">import { injectIntoGlobalHook } from \"/@react-refresh\";\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () => {};\nw"
   },
   {
@@ -15,8 +15,8 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 18.37,
-    "details": "Status 200, HTML/text response (961 bytes, 18.37ms)",
+    "elapsed_ms": 8.82,
+    "details": "Status 200, HTML/text response (999 bytes, 8.82ms)",
     "sample": "<!DOCTYPE html>\n<html lang=\"en\" class=\"dark\">\n  <head>\n    <script type=\"module\">import { injectIntoGlobalHook } from \"/@react-refresh\";\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () => {};\nw"
   },
   {
@@ -25,8 +25,8 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 19.01,
-    "details": "Status 200, HTML/text response (961 bytes, 19.01ms)",
+    "elapsed_ms": 7.03,
+    "details": "Status 200, HTML/text response (999 bytes, 7.03ms)",
     "sample": "<!DOCTYPE html>\n<html lang=\"en\" class=\"dark\">\n  <head>\n    <script type=\"module\">import { injectIntoGlobalHook } from \"/@react-refresh\";\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () => {};\nw"
   },
   {
@@ -35,8 +35,8 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 41.07,
-    "details": "Status 200, HTML/text response (961 bytes, 41.07ms)",
+    "elapsed_ms": 25.65,
+    "details": "Status 200, HTML/text response (999 bytes, 25.65ms)",
     "sample": "<!DOCTYPE html>\n<html lang=\"en\" class=\"dark\">\n  <head>\n    <script type=\"module\">import { injectIntoGlobalHook } from \"/@react-refresh\";\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () => {};\nw"
   },
   {
@@ -45,9 +45,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 5363.4,
-    "details": "Status 200, returned valid JSON (1515 bytes, 5363.4ms)",
-    "sample": "{'data': [{'change': -0.45, 'change_pct': -0.0, 'group': 'BENCHMARK', 'price': 24536.15, 'symbol': 'NIFTY 50'}, {'change': 30.88, 'change_pct': 0.04, 'group': 'BENCHMARK', 'price': 79340.88, 'symbol':"
+    "elapsed_ms": 4151.07,
+    "details": "Status 200, returned valid JSON (1500 bytes, 4151.07ms)",
+    "sample": "{'data': [{'change': 493.75, 'change_pct': 2.01, 'group': 'BENCHMARK', 'price': 25030.35, 'symbol': 'NIFTY 50'}, {'change': 1718.02, 'change_pct': 2.17, 'group': 'BENCHMARK', 'price': 81028.02, 'symbo"
   },
   {
     "name": "6. Top Equities Overview",
@@ -55,9 +55,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 5335.5,
-    "details": "Status 200, returned valid JSON (799 bytes, 5335.5ms)",
-    "sample": "{'status': 'success', 'stocks': [{'change': -13.3, 'change_pct': -1.01, 'day_high': 1306.4, 'day_low': 1295.0, 'name': 'Reliance Industries', 'price': 1300.1, 'sector': 'Indian Equities', 'ticker': 'R"
+    "elapsed_ms": 2995.71,
+    "details": "Status 200, returned valid JSON (796 bytes, 2995.71ms)",
+    "sample": "{'status': 'success', 'stocks': [{'change': 6.6, 'change_pct': 0.5, 'day_high': 1320.0, 'day_low': 1295.0, 'name': 'Reliance Industries', 'price': 1320.0, 'sector': 'Indian Equities', 'ticker': 'RELIA"
   },
   {
     "name": "7. Reliance Stock Fundamentals & Candlesticks",
@@ -65,9 +65,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 10022.67,
-    "details": "Status 200, returned valid JSON (13500 bytes, 10022.67ms)",
-    "sample": "{'data': {'analyst_count': 25, 'analyst_data': {'buy': 20, 'hold': 0, 'sell': 0, 'strong_buy': 5, 'strong_sell': 1}, 'analyst_rating': 'strong_buy', 'avg_volume': 14505273, 'beta': 0.183, 'book_value'"
+    "elapsed_ms": 9095.73,
+    "details": "Status 200, returned valid JSON (13496 bytes, 9095.73ms)",
+    "sample": "{'data': {'analyst_count': 25, 'analyst_data': {'buy': 20, 'hold': 0, 'sell': 0, 'strong_buy': 5, 'strong_sell': 1}, 'analyst_rating': 'strong_buy', 'avg_volume': 14491354, 'beta': 0.183, 'book_value'"
   },
   {
     "name": "8. TCS Stock Data",
@@ -75,9 +75,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 8815.52,
-    "details": "Status 200, returned valid JSON (13690 bytes, 8815.52ms)",
-    "sample": "{'data': {'analyst_count': 42, 'analyst_data': {'buy': 16, 'hold': 11, 'sell': 3, 'strong_buy': 9, 'strong_sell': 2}, 'analyst_rating': 'buy', 'avg_volume': 3914598, 'beta': 0.075, 'book_value': 328.8"
+    "elapsed_ms": 9081.38,
+    "details": "Status 200, returned valid JSON (13688 bytes, 9081.38ms)",
+    "sample": "{'data': {'analyst_count': 42, 'analyst_data': {'buy': 16, 'hold': 11, 'sell': 3, 'strong_buy': 9, 'strong_sell': 2}, 'analyst_rating': 'buy', 'avg_volume': 3979740, 'beta': 0.075, 'book_value': 328.8"
   },
   {
     "name": "9. NIFTY Option Chain",
@@ -85,9 +85,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 16477.64,
-    "details": "Status 200, returned valid JSON (2649 bytes, 16477.64ms)",
-    "sample": "{'data': {'atm_strike': 24500, 'avg_iv': 12.0, 'chain': [{'call': {'delta': 1.0, 'gamma': 0.0, 'ltp': 2597.08, 'oi': 6983, 'theta': -3.91, 'vega': 0.0}, 'is_atm': False, 'iv_pct': 12.2, 'put': {'delta"
+    "elapsed_ms": 9998.56,
+    "details": "Status 200, returned valid JSON (2733 bytes, 9998.56ms)",
+    "sample": "{'data': {'atm_strike': 25000, 'avg_iv': 32.6, 'chain': [{'call': {'delta': 0.958, 'gamma': 6e-05, 'ltp': 2614.1, 'oi': 7024, 'theta': -8.9, 'vega': 4.36}, 'is_atm': False, 'iv_pct': 32.7, 'put': {'de"
   },
   {
     "name": "10. BANKNIFTY Option Chain",
@@ -95,9 +95,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 35929.38,
-    "details": "Status 200, returned valid JSON (2629 bytes, 35929.38ms)",
-    "sample": "{'data': {'atm_strike': 2500, 'avg_iv': 12.0, 'chain': [{'call': {'delta': 1.0, 'gamma': 0.0, 'ltp': 255.6, 'oi': 7041, 'theta': -0.4, 'vega': 0.0}, 'is_atm': False, 'iv_pct': 12.2, 'put': {'delta': -"
+    "elapsed_ms": 9704.9,
+    "details": "Status 200, returned valid JSON (2646 bytes, 9704.9ms)",
+    "sample": "{'data': {'atm_strike': 60.0, 'avg_iv': 41.5, 'chain': [{'call': {'delta': 0.999, 'gamma': 0.00057, 'ltp': 13.85, 'oi': 5295, 'theta': -0.01, 'vega': 0.0}, 'is_atm': False, 'iv_pct': 42.2, 'put': {'de"
   },
   {
     "name": "11. Screener - 52-Week High Breakouts",
@@ -105,9 +105,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 37812.72,
-    "details": "Status 200, returned valid JSON (1221 bytes, 37812.72ms)",
-    "sample": "{'data': [{'change_pct': 2.01, 'dist_to_52w_high': 1.02, 'name': 'Bharti Airtel Limited', 'price': 2098.3, 'rsi_14': 78.3, 'sector': 'Communication Services', 'symbol': 'BHARTIARTL', 'tags': ['52W_HIG"
+    "elapsed_ms": 31198.68,
+    "details": "Status 200, returned valid JSON (1073 bytes, 31198.68ms)",
+    "sample": "{'data': [{'change_pct': 2.45, 'dist_to_52w_high': 0.6, 'name': 'Bharti Airtel Limited', 'price': 2107.2, 'rsi_14': 78.8, 'sector': 'Communication Services', 'symbol': 'BHARTIARTL', 'tags': ['52W_HIGH"
   },
   {
     "name": "12. Screener - Volume Surge Equities",
@@ -115,9 +115,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2083.2,
-    "details": "Status 200, returned valid JSON (220 bytes, 2083.2ms)",
-    "sample": "{'data': [{'change_pct': 2.2, 'dist_to_52w_high': 4.74, 'name': 'Titan Company Limited', 'price': 4941.1, 'rsi_14': 79.5, 'sector': 'Consumer Cyclical', 'symbol': 'TITAN', 'tags': ['VOLUME_SURGE'], 'v"
+    "elapsed_ms": 2055.47,
+    "details": "Status 200, returned valid JSON (2813 bytes, 2055.47ms)",
+    "sample": "{'data': [{'change_pct': 0.5, 'dist_to_52w_high': 9.99, 'name': 'Reliance Industries Limited', 'price': 1320.0, 'rsi_14': 70.2, 'sector': 'Energy', 'symbol': 'RELIANCE', 'tags': ['VOLUME_SURGE'], 'vol"
   },
   {
     "name": "13. Screener - Golden Cross Equities",
@@ -125,9 +125,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2068.09,
-    "details": "Status 200, returned valid JSON (1400 bytes, 2068.09ms)",
-    "sample": "{'data': [{'change_pct': 2.01, 'dist_to_52w_high': 1.02, 'name': 'Bharti Airtel Limited', 'price': 2098.3, 'rsi_14': 78.3, 'sector': 'Communication Services', 'symbol': 'BHARTIARTL', 'tags': ['52W_HIG"
+    "elapsed_ms": 2071.09,
+    "details": "Status 200, returned valid JSON (1646 bytes, 2071.09ms)",
+    "sample": "{'data': [{'change_pct': 0.11, 'dist_to_52w_high': 4.82, 'name': 'Tata Consultancy Services Limited', 'price': 2498.5, 'rsi_14': 54.5, 'sector': 'Technology', 'symbol': 'TCS', 'tags': ['GOLDEN_CROSS']"
   },
   {
     "name": "14. Auto-Scaling Equities Universe Stats",
@@ -135,8 +135,8 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2114.28,
-    "details": "Status 200, returned valid JSON (186 bytes, 2114.28ms)",
+    "elapsed_ms": 2106.79,
+    "details": "Status 200, returned valid JSON (186 bytes, 2106.79ms)",
     "sample": "{'stats': {'backfilled_symbols': 0, 'db_path': 'C:\\\\Users\\\\surya\\\\.gemini\\\\antigravity\\\\scratch\\\\perfect_indian_stock_platform\\\\ticker_universe.db', 'total_symbols': 2587}, 'status': 'success'}"
   },
   {
@@ -145,9 +145,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2092.91,
-    "details": "Status 200, returned valid JSON (530 bytes, 2092.91ms)",
-    "sample": "{'data': {'active_version': 'v_baseline_v1', 'current_info': {'active_version': 'v_baseline_v1', 'description': 'Baseline Initial Seed Model', 'metrics': {'hit_rate': 0.582, 'sharpe_ratio': 1.45, 'sor"
+    "elapsed_ms": 2098.44,
+    "details": "Status 200, returned valid JSON (910 bytes, 2098.44ms)",
+    "sample": "{'data': {'active_version': 'v_hybrid_20261106_120838', 'current_info': {'active_version': 'v_hybrid_20261106_120838', 'description': 'Promoted! Candidate Hit Rate (0.635 >= 0.582) & Sortino (2.1 >= 1"
   },
   {
     "name": "16. Broker Status Check",
@@ -155,9 +155,9 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2066.59,
-    "details": "Status 200, returned valid JSON (380 bytes, 2066.59ms)",
-    "sample": "{'data': {'config': {'broker_name': 'Dhan Sandbox Gateway', 'client_id': 'DHAN_PAPER_98214', 'environment': 'SANDBOX / PAPER', 'ping_ms': 28, 'status': 'CONNECTED'}, 'recent_webhooks': [{'action': 'BU"
+    "elapsed_ms": 2073.0,
+    "details": "Status 200, returned valid JSON (196 bytes, 2073.0ms)",
+    "sample": "{'data': {'config': {'broker_name': 'Dhan Sandbox Gateway', 'client_id': 'DHAN_PAPER_98214', 'environment': 'SANDBOX / PAPER', 'ping_ms': 28, 'status': 'CONNECTED'}, 'recent_webhooks': []}, 'status': "
   },
   {
     "name": "17. Inbound Algorithmic Webhook Order (BUY TCS)",
@@ -165,9 +165,9 @@
     "method": "POST",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2051.43,
-    "details": "Status 200, returned valid JSON (269 bytes, 2051.43ms)",
-    "sample": "{'message': 'Order ORD_1793937970263 filled: BUY 10 TCS', 'order': {'action': 'BUY', 'order_id': 'ORD_1793937970263', 'price': 3840.5, 'quantity': 10, 'source': 'Human QA Test Suite', 'status': 'EXECU"
+    "elapsed_ms": 2058.36,
+    "details": "Status 200, returned valid JSON (269 bytes, 2058.36ms)",
+    "sample": "{'message': 'Order ORD_1793967907580 filled: BUY 10 TCS', 'order': {'action': 'BUY', 'order_id': 'ORD_1793967907580', 'price': 3840.5, 'quantity': 10, 'source': 'Human QA Test Suite', 'status': 'EXECU"
   },
   {
     "name": "18. Broker Status After Inbound Order",
@@ -175,8 +175,8 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2045.17,
-    "details": "Status 200, returned valid JSON (565 bytes, 2045.17ms)",
+    "elapsed_ms": 2059.38,
+    "details": "Status 200, returned valid JSON (380 bytes, 2059.38ms)",
     "sample": "{'data': {'config': {'broker_name': 'Dhan Sandbox Gateway', 'client_id': 'DHAN_PAPER_98214', 'environment': 'SANDBOX / PAPER', 'ping_ms': 28, 'status': 'CONNECTED'}, 'recent_webhooks': [{'action': 'BU"
   },
   {
@@ -185,8 +185,8 @@
     "method": "GET",
     "success": true,
     "status": 200,
-    "elapsed_ms": 2420.4,
-    "details": "Status 200, returned valid JSON (1389 bytes, 2420.4ms)",
-    "sample": "{'data': {'atr_14': 35.3, 'bull_target': 1413.91, 'confidence': 60.0, 'current_price': 1303.4, 'direction': 'BULLISH', 'expected_return_5d': 2.25, 'feature_attributions': [{'desc': 'RSI 66.9 is in opt"
+    "elapsed_ms": 7087.4,
+    "details": "Status 200, returned valid JSON (4368 bytes, 7087.4ms)",
+    "sample": "{'data': {'action': 'REDUCE', 'ai_explanation': {'headline_summary': 'The model advises you to reduce your Reliance position because short\u2011term upside is tiny while downside risk is higher.', 'multi_h"
   }
 ]

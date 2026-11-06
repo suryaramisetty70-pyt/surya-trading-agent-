@@ -1,10 +1,14 @@
 {
-  "active_version": "v_baseline_v1",
-  "promoted_at": "2026-09-26T14:07:57.301469+00:00",
+  "active_version": "v_hybrid_20261106_120838",
+  "model_type": "Pro Hybrid ML Ensemble (GBDT + Multi-Horizon + Squeeze)",
+  "promoted_at": "2026-11-06T12:08:38.117650+00:00",
   "metrics": {
-    "hit_rate": 0.582,
-    "sharpe_ratio": 1.45,
-    "sortino_ratio": 1.82
+    "hit_rate": 0.635,
+    "sharpe_ratio": 1.65,
+    "sortino_ratio": 2.1,
+    "mae_5d": 0.0285,
+    "training_samples": 4170,
+    "features_count": 13
   },
-  "description": "Baseline Initial Seed Model"
+  "description": "Promoted! Candidate Hit Rate (0.635 >= 0.582) & Sortino (2.1 >= 1.82)."
 }

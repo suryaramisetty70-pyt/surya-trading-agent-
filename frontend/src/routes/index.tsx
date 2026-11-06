@@ -10,14 +10,14 @@ const Globe3D = lazy(() => import("@/components/market/Globe3D"));
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Surya Trading Agent — AI Market Intelligence Dashboard" },
+      { title: "MAX MARKET — Hybrid ML & AI Trading Suite" },
       {
         name: "description",
         content:
-          "Live market dashboard with AI signals, sentiment, heatmaps and a 3D market globe. See the market, understand the signal, make better decisions.",
+          "Institutional trading terminal powered by Pro Hybrid ML Model Trade Prediction and Explainable AI. Live NSE/BSE execution, risk management & 3D market analytics.",
       },
-      { property: "og:title", content: "Surya Trading Agent — AI Market Intelligence" },
-      { property: "og:description", content: "Live indices, AI trade signals, sector heatmaps and a real-time 3D market globe." },
+      { property: "og:title", content: "MAX MARKET — Pro Hybrid ML Trade Prediction" },
+      { property: "og:description", content: "Live indices, hybrid ML trade signals, sector heatmaps and an institutional 3D market globe." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -69,14 +69,15 @@ function Home() {
         {/* HERO */}
         <section className="relative grid gap-6 overflow-hidden rounded-lg border border-border bg-[radial-gradient(80%_120%_at_50%_0%,color-mix(in_oklab,var(--primary)_10%,transparent),transparent)] p-6 lg:grid-cols-[minmax(300px,1fr)_1.15fr_320px]">
           <div className="relative z-10 flex flex-col justify-center">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-[0.65rem] font-bold text-primary w-fit uppercase tracking-widest">
+              <span className="size-2 rounded-full bg-bull animate-pulse" /> Hybrid ML Trade Prediction Engine Live
+            </div>
             <h1 className="font-display text-5xl leading-[0.95] font-extrabold tracking-tight md:text-6xl">
-              SURYA
-              <span className="grad-text mt-1 block text-4xl md:text-5xl">TRADING AGENT</span>
+              MAX
+              <span className="grad-text mt-1 block text-4xl md:text-5xl">MARKET</span>
             </h1>
             <p className="mt-5 max-w-sm text-sm leading-relaxed text-muted-foreground">
-              See the Market. Understand the Signal.
-              <br />
-              Make Better Decisions.
+              Institutional Hybrid ML Trade Predictions, Multi-Horizon Quant Models, and Plain-English AI Reasoning.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
@@ -154,33 +155,39 @@ function Home() {
             >
               <ul className="space-y-3">
                 {AI_SIGNALS.slice(0, 3).map((s) => (
-                  <li key={s.symbol} className="grid grid-cols-[1fr_80px] items-center gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">{s.symbol}</span>
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[0.6rem] font-bold ${
-                            s.action === "BUY"
-                              ? "bg-bull/15 text-bull"
-                              : s.action === "SELL"
-                                ? "bg-bear/15 text-bear"
-                                : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {s.action}
-                        </span>
+                  <li key={s.symbol}>
+                    <Link
+                      to="/stock/$symbol"
+                      params={{ symbol: s.symbol }}
+                      className="grid grid-cols-[1fr_80px] items-center gap-2 p-1.5 -mx-1.5 rounded-md hover:bg-secondary/40 transition group cursor-pointer"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold group-hover:text-primary transition">{s.symbol}</span>
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[0.6rem] font-bold ${
+                              s.action === "BUY"
+                                ? "bg-bull/15 text-bull"
+                                : s.action === "SELL"
+                                  ? "bg-bear/15 text-bear"
+                                  : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {s.action}
+                          </span>
+                        </div>
+                        <p className="text-[0.68rem] text-muted-foreground">{s.note}</p>
+                        <p className="num text-[0.65rem] text-muted-foreground">
+                          Target {s.target} · Confidence {s.confidence}%
+                        </p>
                       </div>
-                      <p className="text-[0.68rem] text-muted-foreground">{s.note}</p>
-                      <p className="num text-[0.65rem] text-muted-foreground">
-                        Target {s.target} · Confidence {s.confidence}%
-                      </p>
-                    </div>
-                    <div className="h-10">
-                      <Sparkline
-                        data={candles(s.symbol, 24, s.target).map((c) => c.c)}
-                        color={s.action === "SELL" ? "var(--bear)" : "var(--bull)"}
-                      />
-                    </div>
+                      <div className="h-10">
+                        <Sparkline
+                          data={candles(s.symbol, 24, s.target).map((c) => c.c)}
+                          color={s.action === "SELL" ? "var(--bear)" : "var(--bull)"}
+                        />
+                      </div>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -193,21 +200,23 @@ function Home() {
         {/* BOTTOM GRID */}
         <section className="grid gap-4 xl:grid-cols-5">
           <Panel title="Market Overview" className="xl:col-span-1">
-            <div className="mb-2 flex items-baseline justify-between">
-              <span className="text-xs text-muted-foreground font-semibold">NIFTY 50 (LIVE)</span>
-              <div className="text-right">
-                <LivePrice value={niftyPrice} className="text-sm text-primary font-bold" />
-                <Delta value={niftyChange} className="ml-2" />
+            <Link to="/stock/$symbol" params={{ symbol: "NIFTY" }} className="block group cursor-pointer">
+              <div className="mb-2 flex items-baseline justify-between">
+                <span className="text-xs text-muted-foreground font-semibold group-hover:text-primary transition">NIFTY 50 (LIVE) →</span>
+                <div className="text-right">
+                  <LivePrice value={niftyPrice} className="text-sm text-primary font-bold" />
+                  <Delta value={niftyChange} className="ml-2" />
+                </div>
               </div>
-            </div>
-            <div className="h-32">
-              <Sparkline data={nifty} color="var(--primary)" height={120} />
-            </div>
-            <div className="num mt-2 flex justify-between text-[0.6rem] text-muted-foreground">
-              {["09:15", "11:00", "12:45", "14:30", "16:00"].map((t) => (
-                <span key={t}>{t}</span>
-              ))}
-            </div>
+              <div className="h-32">
+                <Sparkline data={nifty} color="var(--primary)" height={120} />
+              </div>
+              <div className="num mt-2 flex justify-between text-[0.6rem] text-muted-foreground">
+                {["09:15", "11:00", "12:45", "14:30", "16:00"].map((t) => (
+                  <span key={t}>{t}</span>
+                ))}
+              </div>
+            </Link>
           </Panel>
 
           <Panel title="Top Movers">
@@ -248,20 +257,37 @@ function Home() {
               {SECTOR_PERF.slice(0, 9).map((s) => {
                 const up = s.pct >= 0;
                 const i = Math.min(1, Math.abs(s.pct) / 1.2);
+                const sectorLeaderMap: Record<string, string> = {
+                  "Financial Services": "HDFCBANK",
+                  "IT Services": "TCS",
+                  "Oil & Gas": "RELIANCE",
+                  "Automobile": "M&M",
+                  "Consumer Goods": "HINDUNILVR",
+                  "Pharma": "SUNPHARMA",
+                  "Metals": "TATASTEEL",
+                  "Power": "NTPC",
+                  "Telecom": "BHARTIARTL",
+                };
+                const targetSym = sectorLeaderMap[s.name] || "RELIANCE";
+
                 return (
-                  <div
+                  <Link
                     key={s.name}
-                    className="rounded p-2 text-center transition hover:scale-[1.04]"
+                    to="/stock/$symbol"
+                    params={{ symbol: targetSym }}
+                    className="rounded p-2 text-center transition hover:scale-[1.04] cursor-pointer block"
                     style={{
                       background: `color-mix(in oklab, ${up ? "var(--bull)" : "var(--bear)"} ${18 + i * 55}%, transparent)`,
                     }}
+                    title={`View sector leader ${targetSym} details`}
                   >
-                    <p className="truncate text-[0.6rem] font-semibold">{s.name}</p>
-                    <p className="num text-[0.68rem]">
+                    <p className="truncate text-[0.6rem] font-semibold text-foreground">{s.name}</p>
+                    <p className="num text-[0.68rem] font-bold">
                       {up ? "+" : ""}
                       {s.pct.toFixed(2)}%
                     </p>
-                  </div>
+                    <span className="text-[0.55rem] text-muted-foreground block font-mono">({targetSym})</span>
+                  </Link>
                 );
               })}
             </div>

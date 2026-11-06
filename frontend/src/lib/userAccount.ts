@@ -45,9 +45,9 @@ export type NotificationItem = {
 };
 
 const DEFAULT_PROFILE: UserProfile = {
-  name: "Surya Ramisetty",
-  clientId: "SURYA-NSE-8842",
-  email: "surya.trader@nexus.ai",
+  name: "Institutional Trader",
+  clientId: "MAX-NSE-8842",
+  email: "trader@maxmarket.institutional",
   phone: "+91 98765 43210",
   tier: "INSTITUTIONAL PRO",
   kycStatus: "VERIFIED",
@@ -139,6 +139,66 @@ export function playTradeSound() {
   } catch (e) {
     // Audio context may be restricted before user gesture
   }
+}
+
+export type AIKeyConfig = {
+  groqApiKey: string;
+  geminiApiKey: string;
+  openaiApiKey: string;
+  activeProvider: "GROQ" | "GEMINI" | "OPENAI";
+};
+
+export const DEFAULT_AI_KEYS: AIKeyConfig = {
+  groqApiKey: "",
+  geminiApiKey: "",
+  openaiApiKey: "",
+  activeProvider: "GROQ",
+};
+
+const AI_KEYS_STORAGE = "max_market_ai_keys";
+const AI_KEYS_EVENT = "max_market_ai_keys_updated";
+
+export function getStoredAIKeys(): AIKeyConfig {
+  return loadFromStorage<AIKeyConfig>(AI_KEYS_STORAGE, DEFAULT_AI_KEYS);
+}
+
+export function saveStoredAIKeys(keys: AIKeyConfig): void {
+  saveToStorage(AI_KEYS_STORAGE, keys);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AI_KEYS_EVENT));
+  }
+}
+
+export function useAIKeyManager() {
+  const [keys, setKeysState] = useState<AIKeyConfig>(() => getStoredAIKeys());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setKeysState(getStoredAIKeys());
+    };
+    window.addEventListener(AI_KEYS_EVENT, handleUpdate);
+    return () => window.removeEventListener(AI_KEYS_EVENT, handleUpdate);
+  }, []);
+
+  const updateKeys = (partial: Partial<AIKeyConfig>) => {
+    const next = { ...keys, ...partial };
+    setKeysState(next);
+    saveStoredAIKeys(next);
+  };
+
+  const activeKey =
+    keys.activeProvider === "GROQ"
+      ? keys.groqApiKey
+      : keys.activeProvider === "GEMINI"
+      ? keys.geminiApiKey
+      : keys.openaiApiKey;
+
+  return {
+    keys,
+    activeKey,
+    activeProvider: keys.activeProvider,
+    updateKeys,
+  };
 }
 
 export function useUserAccount() {

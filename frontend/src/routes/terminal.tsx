@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { usePaperTrading } from "@/lib/paperTrading";
-import { useUserAccount, playTradeSound } from "@/lib/userAccount";
+import { useUserAccount, playTradeSound, useAIKeyManager } from "@/lib/userAccount";
 import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
 import OptionChainPanel from "@/components/market/OptionChainPanel";
 import Globe3D from "@/components/market/Globe3D";
@@ -876,7 +876,7 @@ function AnalyticsView() {
 
   return (
     <div className="space-y-4">
-      <Panel title="Surya ML Predictive Analytics Lab">
+      <Panel title="MAX MARKET Pro Hybrid ML Predictive Analytics Lab">
         <div className="flex gap-2 mb-4">
           <input
             value={ticker}
@@ -1478,9 +1478,20 @@ function SettingsView() {
     return "BROKER";
   });
 
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("user_groq_api_key") || "");
+  const { keys, updateKeys } = useAIKeyManager();
+  const [groqKeyInput, setGroqKeyInput] = useState(keys.groqApiKey);
+  const [geminiKeyInput, setGeminiKeyInput] = useState(keys.geminiApiKey);
+  const [openAIKeyInput, setOpenAIKeyInput] = useState(keys.openaiApiKey);
+  const [providerChoice, setProviderChoice] = useState<"GROQ" | "GEMINI" | "OPENAI">(keys.activeProvider);
   const [statusMsg, setStatusMsg] = useState("");
   const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    setGroqKeyInput(keys.groqApiKey);
+    setGeminiKeyInput(keys.geminiApiKey);
+    setOpenAIKeyInput(keys.openaiApiKey);
+    setProviderChoice(keys.activeProvider);
+  }, [keys]);
 
   // Universe & Model Registry State
   const [universeStats, setUniverseStats] = useState<any>(null);
@@ -1601,29 +1612,41 @@ function SettingsView() {
     }
   };
 
-  const saveApiKey = () => {
-    localStorage.setItem("user_groq_api_key", apiKey.trim());
-    setStatusMsg("Saved to local browser storage!");
-    setTimeout(() => setStatusMsg(""), 3000);
+  const saveAllAiKeys = () => {
+    updateKeys({
+      groqApiKey: groqKeyInput.trim(),
+      geminiApiKey: geminiKeyInput.trim(),
+      openaiApiKey: openAIKeyInput.trim(),
+      activeProvider: providerChoice,
+    });
+    localStorage.setItem("user_groq_api_key", groqKeyInput.trim());
+    setStatusMsg("🟢 AI API Keys & Provider saved to browser storage! Active immediately without backend restarts.");
+    setTimeout(() => setStatusMsg(""), 4000);
   };
 
-  const testApiKey = async () => {
+  const testActiveApiKey = async () => {
     setTesting(true);
-    setStatusMsg("Verifying API key connection...");
+    setStatusMsg("Verifying active API connection to models...");
+    const keyToTest =
+      providerChoice === "GROQ"
+        ? groqKeyInput.trim()
+        : providerChoice === "GEMINI"
+        ? geminiKeyInput.trim()
+        : openAIKeyInput.trim();
     try {
       const res = await fetch("/api/ai-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: apiKey.trim() }),
+        body: JSON.stringify({ api_key: keyToTest }),
       });
       const data = await res.json();
       if (data.online) {
-        setStatusMsg(`🟢 Groq API Key Verified Active! Preview: ${data.active_key_preview}`);
+        setStatusMsg(`🟢 Connection Verified! Active Key Preview: ${data.active_key_preview} — Ready for instant trade inference`);
       } else {
         setStatusMsg(`🔴 Verification Failed: ${data.message || "Invalid API key or rate limit reached."}`);
       }
-    } catch (e) {
-      setStatusMsg("🔴 Network error connecting to AI Status endpoint.");
+    } catch (e: any) {
+      setStatusMsg(`🔴 Network error connecting to AI Status endpoint: ${e.message}`);
     } finally {
       setTesting(false);
     }
@@ -1983,32 +2006,125 @@ function SettingsView() {
       {/* SUBTAB 4: AI DUAL-ENGINE & MODEL REGISTRY */}
       {activeSubTab === "AI" && (
         <div className="space-y-4">
-          <Panel title="Custom AI API Key Manager">
-            <div className="space-y-4 text-xs max-w-lg">
-              <div>
-                <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">Custom Groq API Key</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Paste your key: gsk_..."
-                  className="w-full rounded border border-border bg-secondary p-2.5 mt-1 font-mono text-foreground"
-                />
+          <Panel title="AI API Keys & Token Quota Manager (Instant Hot-Swap)">
+            <div className="space-y-4 text-xs max-w-xl">
+              <div className="p-3 bg-secondary/30 rounded-lg border border-border space-y-1">
+                <span className="font-bold text-foreground text-xs flex items-center gap-1.5">
+                  <Sparkles className="size-4 text-primary" /> Token Exhaustion Protection
+                </span>
+                <p className="text-[0.68rem] text-muted-foreground leading-relaxed">
+                  When AI token limits run out on free tiers, paste your own API key below. The platform will immediately start using your key for all Hybrid ML trade explanations, deep stock research reports, and options sentiment analysis without touching the backend code or restarting any services.
+                </p>
               </div>
 
-              <div className="flex gap-2">
+              {/* Provider Selection */}
+              <div>
+                <label className="font-bold text-muted-foreground uppercase text-[0.62rem] block mb-1.5">
+                  Active AI Inference Provider
+                </label>
+                <div className="flex gap-2">
+                  {[
+                    { id: "GROQ", label: "Groq Cloud (Fastest 70B)", badge: "Recommended" },
+                    { id: "GEMINI", label: "Google Gemini", badge: "Cloud" },
+                    { id: "OPENAI", label: "OpenAI", badge: "GPT-4o" },
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setProviderChoice(p.id as any)}
+                      className={`flex-1 p-2 rounded-lg border text-left transition ${
+                        providerChoice === p.id
+                          ? "border-primary bg-primary/10 text-primary shadow-sm"
+                          : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span className="font-bold text-xs block">{p.label}</span>
+                      <span className="text-[0.58rem] opacity-75">{p.badge}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Boxes */}
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between items-baseline mb-1">
+                    <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">
+                      1. Groq API Key (Llama 3.3 70B & DeepSeek R1)
+                    </label>
+                    <span className="text-[0.58rem] text-primary">Primary High-Speed Engine</span>
+                  </div>
+                  <input
+                    type="password"
+                    value={groqKeyInput}
+                    onChange={(e) => setGroqKeyInput(e.target.value)}
+                    placeholder="gsk_..."
+                    className="w-full rounded border border-border bg-secondary p-2.5 font-mono text-foreground focus:border-primary outline-none"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-baseline mb-1">
+                    <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">
+                      2. Google Gemini API Key
+                    </label>
+                    <span className="text-[0.58rem] text-muted-foreground">Secondary Backup Engine</span>
+                  </div>
+                  <input
+                    type="password"
+                    value={geminiKeyInput}
+                    onChange={(e) => setGeminiKeyInput(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="w-full rounded border border-border bg-secondary p-2.5 font-mono text-foreground focus:border-primary outline-none"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-baseline mb-1">
+                    <label className="font-bold text-muted-foreground uppercase text-[0.62rem]">
+                      3. OpenAI API Key
+                    </label>
+                    <span className="text-[0.58rem] text-muted-foreground">Optional Engine</span>
+                  </div>
+                  <input
+                    type="password"
+                    value={openAIKeyInput}
+                    onChange={(e) => setOpenAIKeyInput(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full rounded border border-border bg-secondary p-2.5 font-mono text-foreground focus:border-primary outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <button
-                  onClick={saveApiKey}
-                  className="flex-1 py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider"
+                  onClick={saveAllAiKeys}
+                  className="flex-1 py-2.5 bg-primary text-primary-foreground font-bold rounded-lg uppercase tracking-wider text-xs hover:brightness-110 flex items-center justify-center gap-1.5 shadow"
                 >
-                  Save Key
+                  <Check className="size-4" /> Save & Activate Keys
                 </button>
                 <button
-                  onClick={testApiKey}
+                  onClick={testActiveApiKey}
                   disabled={testing}
-                  className="flex-1 py-2 bg-bull text-white font-bold rounded uppercase tracking-wider disabled:opacity-50"
+                  className="flex-1 py-2.5 bg-bull text-white font-bold rounded-lg uppercase tracking-wider text-xs disabled:opacity-50 hover:brightness-110 flex items-center justify-center gap-1.5 shadow"
                 >
-                  {testing ? "Testing..." : "Test API Connection"}
+                  <Zap className="size-3.5" /> {testing ? "Verifying..." : `Test ${providerChoice} Key`}
+                </button>
+              </div>
+
+              <div className="flex justify-between items-center text-[0.65rem] text-muted-foreground pt-1 border-t border-border/60">
+                <span>Keys stored securely in client localStorage</span>
+                <button
+                  onClick={() => {
+                    setGroqKeyInput("");
+                    setGeminiKeyInput("");
+                    setOpenAIKeyInput("");
+                    updateKeys({ groqApiKey: "", geminiApiKey: "", openaiApiKey: "" });
+                    localStorage.removeItem("user_groq_api_key");
+                    setStatusMsg("Reset to platform default environment keys.");
+                  }}
+                  className="text-bear hover:underline"
+                >
+                  Clear Keys (Use Backend Defaults)
                 </button>
               </div>
             </div>

@@ -1,4 +1,4 @@
-# 📊 Surya Trading Agent — Indian Stock Intelligence Platform
+# 📊 MAX MARKET — Pro Hybrid ML Trade Prediction & Intelligence Platform
 
 An AI-powered Indian stock market analysis platform using **Groq Llama 3.3 70B** for lightning-fast stock intelligence reports.
 

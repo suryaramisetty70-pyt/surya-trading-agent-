@@ -1,10 +1,10 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
-import { Search, Bell, Star, User, Radio, CheckCircle2, ShieldCheck, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, X, ExternalLink } from "lucide-react";
+import { Search, Bell, Star, User, Radio, CheckCircle2, ShieldCheck, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, X, ExternalLink, Key, Sparkles, Check, Cpu } from "lucide-react";
 import { BASE_QUOTES, INDICES, useClock, useLiveQuotes, fmt } from "@/lib/market";
 import { Delta, LivePrice } from "./primitives";
 import { cn } from "@/lib/utils";
-import { useUserAccount } from "@/lib/userAccount";
+import { useUserAccount, useAIKeyManager } from "@/lib/userAccount";
 import { usePaperTrading } from "@/lib/paperTrading";
 
 const NAV = [
@@ -21,11 +21,57 @@ export function TopBar() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [notifsOpen, setNotifsOpen] = useState(false);
   const [watchlistOpen, setWatchlistOpen] = useState(false);
+  const [aiKeyOpen, setAiKeyOpen] = useState(false);
   const [depositMsg, setDepositMsg] = useState("");
 
   const navigate = useNavigate();
   const { profile, notifications, unreadCount, markAllNotificationsRead } = useUserAccount();
+  const { keys, updateKeys } = useAIKeyManager();
   const paper = usePaperTrading();
+
+  const [inputGroq, setInputGroq] = useState(keys.groqApiKey);
+  const [inputGemini, setInputGemini] = useState(keys.geminiApiKey);
+  const [inputOpenAI, setInputOpenAI] = useState(keys.openaiApiKey);
+  const [aiTestMsg, setAiTestMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [aiTesting, setAiTesting] = useState(false);
+
+  useEffect(() => {
+    setInputGroq(keys.groqApiKey);
+    setInputGemini(keys.geminiApiKey);
+    setInputOpenAI(keys.openaiApiKey);
+  }, [keys]);
+
+  const handleSaveKeys = () => {
+    updateKeys({
+      groqApiKey: inputGroq.trim(),
+      geminiApiKey: inputGemini.trim(),
+      openaiApiKey: inputOpenAI.trim(),
+    });
+    setAiTestMsg({ text: "Keys updated and saved successfully! Effective immediately.", ok: true });
+    setTimeout(() => setAiTestMsg(null), 3000);
+  };
+
+  const handleTestGroqKey = async () => {
+    setAiTesting(true);
+    setAiTestMsg(null);
+    try {
+      const res = await fetch("/api/ai-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: inputGroq.trim() }),
+      });
+      const data = await res.json();
+      if (data.online) {
+        setAiTestMsg({ text: "Groq Key Valid! Connected to Llama 3.3 70B & DeepSeek reasoning models.", ok: true });
+      } else {
+        setAiTestMsg({ text: `Key Check Warning: ${data.message || "Could not connect"}`, ok: false });
+      }
+    } catch (e: any) {
+      setAiTestMsg({ text: `Connection error: ${e.message}`, ok: false });
+    } finally {
+      setAiTesting(false);
+    }
+  };
 
   const results = q
     ? BASE_QUOTES.filter(
@@ -44,9 +90,9 @@ export function TopBar() {
       <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
         <Link to="/" className="flex items-center gap-2">
           <span className="grid size-8 place-items-center rounded-md bg-primary/15 font-display text-lg font-bold text-primary shadow-[var(--glow-cyan)]">
-            S
+            M
           </span>
-          <span className="font-display text-sm font-semibold tracking-[0.22em] uppercase">Surya</span>
+          <span className="font-display text-sm font-semibold tracking-[0.22em] uppercase">MAX MARKET</span>
         </Link>
 
         <div className="relative min-w-[180px] flex-1">
@@ -126,6 +172,129 @@ export function TopBar() {
               <p className="text-[0.6rem] font-bold tracking-widest text-bull">LIVE</p>
               <p className="num text-[0.6rem] text-muted-foreground">{clock} IST</p>
             </div>
+          </div>
+
+          {/* AI API Token Fixer Popover */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setAiKeyOpen(!aiKeyOpen);
+                setNotifsOpen(false);
+                setAccountOpen(false);
+                setWatchlistOpen(false);
+              }}
+              className={`relative grid size-9 place-items-center rounded-md border transition ${
+                keys.groqApiKey
+                  ? "border-primary/60 bg-primary/10 text-primary shadow-[var(--glow-cyan)]"
+                  : "border-border hover:border-primary/50 bg-secondary/30 text-foreground"
+              }`}
+              title="AI API Keys & Token Fixer (Fix token limits directly from UI)"
+              aria-label="AI Keys"
+            >
+              <Key className="size-4" />
+              {keys.groqApiKey && (
+                <span className="absolute -top-1 -right-1 flex size-2.5 rounded-full bg-bull" />
+              )}
+            </button>
+
+            {aiKeyOpen && (
+              <div className="absolute right-0 top-full mt-2 w-88 rounded-xl border border-border bg-popover p-4 shadow-2xl z-50 space-y-3.5">
+                <div className="flex items-center justify-between pb-2 border-b border-border text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="size-4 text-primary" />
+                    <span className="font-bold uppercase tracking-wider text-primary">AI API Key & Token Fixer</span>
+                  </div>
+                  <button onClick={() => setAiKeyOpen(false)} className="text-muted-foreground hover:text-foreground">
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+
+                <p className="text-[0.68rem] text-muted-foreground leading-snug">
+                  If your AI token quota finishes, paste your personal API key below to continue generating instant hybrid ML explanations and reports without editing backend code.
+                </p>
+
+                <div className="space-y-2.5 text-xs">
+                  <div>
+                    <label className="text-[0.62rem] font-bold uppercase text-muted-foreground block mb-1">
+                      Groq API Key (Fastest Institutional Inference)
+                    </label>
+                    <input
+                      type="password"
+                      value={inputGroq}
+                      onChange={(e) => setInputGroq(e.target.value)}
+                      placeholder="gsk_..."
+                      className="w-full rounded border border-border bg-secondary p-2 font-mono text-[0.72rem] text-foreground focus:border-primary outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[0.62rem] font-bold uppercase text-muted-foreground block mb-1">
+                      Google Gemini API Key (Secondary Backup)
+                    </label>
+                    <input
+                      type="password"
+                      value={inputGemini}
+                      onChange={(e) => setInputGemini(e.target.value)}
+                      placeholder="AIzaSy..."
+                      className="w-full rounded border border-border bg-secondary p-2 font-mono text-[0.72rem] text-foreground focus:border-primary outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[0.62rem] font-bold uppercase text-muted-foreground block mb-1">
+                      OpenAI API Key (Optional)
+                    </label>
+                    <input
+                      type="password"
+                      value={inputOpenAI}
+                      onChange={(e) => setInputOpenAI(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full rounded border border-border bg-secondary p-2 font-mono text-[0.72rem] text-foreground focus:border-primary outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      onClick={handleSaveKeys}
+                      className="py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider text-[0.68rem] hover:brightness-110 flex items-center justify-center gap-1"
+                    >
+                      <Check className="size-3" /> Save & Apply
+                    </button>
+                    <button
+                      onClick={handleTestGroqKey}
+                      disabled={aiTesting}
+                      className="py-2 bg-secondary border border-border text-foreground hover:bg-secondary/80 font-bold rounded uppercase tracking-wider text-[0.68rem] flex items-center justify-center gap-1 disabled:opacity-50"
+                    >
+                      <Cpu className="size-3 text-primary" /> {aiTesting ? "Testing..." : "Test Key"}
+                    </button>
+                  </div>
+
+                  {aiTestMsg && (
+                    <div
+                      className={`p-2 rounded text-[0.68rem] font-semibold text-center ${
+                        aiTestMsg.ok
+                          ? "bg-bull/15 text-bull border border-bull/30"
+                          : "bg-bear/15 text-bear border border-bear/30"
+                      }`}
+                    >
+                      {aiTestMsg.text}
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-border/60 flex items-center justify-between text-[0.65rem] text-muted-foreground">
+                    <span>Key saved in local storage</span>
+                    <Link
+                      to="/terminal"
+                      hash="Settings"
+                      onClick={() => setAiKeyOpen(false)}
+                      className="text-primary hover:underline font-semibold"
+                    >
+                      Full AI Settings →
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Notifications Button & Dropdown */}
@@ -327,14 +496,19 @@ export function TickerTape({ className }: { className?: string }) {
 }
 
 function TickerItem({ symbol, price, pct }: { symbol: string; price: number; pct: number }) {
+  const cleanSym = symbol.replace(" (MCX)", "").replace("^", "").trim();
   return (
-    <div className="flex min-w-[190px] flex-col justify-center border-r border-border/60 px-5 py-2">
-      <span className="text-[0.62rem] tracking-[0.12em] text-muted-foreground uppercase">{symbol}</span>
+    <Link
+      to="/stock/$symbol"
+      params={{ symbol: cleanSym }}
+      className="flex min-w-[190px] flex-col justify-center border-r border-border/60 px-5 py-2 hover:bg-secondary/40 transition cursor-pointer group"
+    >
+      <span className="text-[0.62rem] tracking-[0.12em] text-muted-foreground uppercase group-hover:text-primary transition">{symbol}</span>
       <span className="num text-sm font-semibold">
         {price.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
       </span>
       <Delta value={pct} />
-    </div>
+    </Link>
   );
 }
 

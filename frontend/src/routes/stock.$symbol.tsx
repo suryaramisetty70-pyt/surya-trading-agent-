@@ -6,6 +6,7 @@ import CandleChart from "@/components/market/CandleChart";
 import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
 import { BASE_QUOTES, findQuote, fmt } from "@/lib/market";
 import { usePaperTrading } from "@/lib/paperTrading";
+import { useAIKeyManager } from "@/lib/userAccount";
 import { ShieldCheck, TrendingUp, Cpu, Award, CheckCircle2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 
 export const Route = createFileRoute("/stock/$symbol")({
@@ -15,7 +16,7 @@ export const Route = createFileRoute("/stock/$symbol")({
     return { quote: q };
   },
   head: ({ loaderData }) => {
-    if (!loaderData) return { meta: [{ title: "Symbol unavailable — Surya" }, { name: "robots", content: "noindex" }] };
+    if (!loaderData) return { meta: [{ title: "Symbol unavailable — MAX MARKET" }, { name: "robots", content: "noindex" }] };
     const q = loaderData.quote;
     const title = `${q.symbol} — ${q.name} Live Chart, Technicals & Valuation`;
     const description = `${q.name} (${q.exchange}) live price, candlestick chart with EMA, technical score, AI market intelligence, fundamentals and DCF valuation.`;
@@ -53,6 +54,7 @@ function StockPage() {
 
   // Paper trading integration
   const paper = usePaperTrading();
+  const { activeKey } = useAIKeyManager();
   const [tradeQty, setTradeQty] = useState(10);
   const [tradeMsg, setTradeMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -73,7 +75,9 @@ function StockPage() {
         if (!cancelled) setLoadingLive(false);
       });
 
-    fetch(`/api/predict?ticker=${encodeURIComponent(quote.symbol)}`)
+    fetch(`/api/predict?ticker=${encodeURIComponent(quote.symbol)}`, {
+      headers: activeKey ? { "X-AI-Key": activeKey } : {},
+    })
       .then((res) => res.json())
       .then((json) => {
         if (!cancelled && json.status === "success" && json.data) {
