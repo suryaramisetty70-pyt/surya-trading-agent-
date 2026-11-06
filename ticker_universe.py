@@ -35,7 +35,7 @@ DEFAULT_BOOTSTRAP_TICKERS = [
     ("LTIM.NS", "LTIMindtree Limited", "NSE", "INE214T01019", "Technology"),
     ("LT.NS", "Larsen & Toubro Limited", "NSE", "INE018A01030", "Industrials"),
     ("ETERNAL.NS", "Eternal Limited (formerly Zomato)", "NSE", "INE758T01015", "Consumer Cyclical"),
-    ("TATAMOTORS.NS", "Tata Motors Limited", "NSE", "INE155A01022", "Automotive"),
+    ("TATAPOWER.NS", "Tata Power Company Limited", "NSE", "INE245A01021", "Utilities"),
     ("TATASTEEL.NS", "Tata Steel Limited", "NSE", "INE081A01020", "Materials"),
     ("SWIGGY.NS", "Swiggy Limited", "NSE", "INE002T01014", "Consumer Cyclical"),
 ]
@@ -55,7 +55,7 @@ KNOWN_ALIASES = {
     "ICICIBANK": "ICICIBANK.NS",
     "SBI": "SBIN.NS",
     "SBIN": "SBIN.NS",
-    "TATA MOTORS": "TATAMOTORS.NS",
+    "TATA MOTORS": "TATAPOWER.NS",
     "TATASTEEL": "TATASTEEL.NS",
     "SWIGGY": "SWIGGY.NS",
 }

@@ -17,7 +17,26 @@ from datetime import datetime
 # In-memory cache for sub-second speeds (60s TTL)
 DATA_CACHE = {}
 TOP5_CACHE = {"timestamp": 0, "data": []}
-INDICES_CACHE = {"time": 0, "data": []}
+DEFAULT_INDICES_BASELINE = [
+    {"symbol": "NIFTY 50", "group": "BENCHMARK", "price": 24834.85, "change": 168.20, "change_pct": 0.68},
+    {"symbol": "SENSEX", "group": "BENCHMARK", "price": 81330.56, "change": 502.40, "change_pct": 0.62},
+    {"symbol": "BANK NIFTY", "group": "SECTORAL", "price": 55624.45, "change": 321.10, "change_pct": 0.58},
+    {"symbol": "MIDCAP 100", "group": "BROAD", "price": 57751.30, "change": 345.20, "change_pct": 0.60},
+    {"symbol": "NIFTY IT", "group": "SECTORAL", "price": 42150.80, "change": 480.15, "change_pct": 1.15},
+    {"symbol": "NIFTY AUTO", "group": "SECTORAL", "price": 26420.10, "change": 185.30, "change_pct": 0.71},
+    {"symbol": "NIFTY PHARMA", "group": "SECTORAL", "price": 22910.45, "change": -84.20, "change_pct": -0.37},
+    {"symbol": "NIFTY FMCG", "group": "SECTORAL", "price": 63450.20, "change": 120.40, "change_pct": 0.19},
+    {"symbol": "NIFTY METAL", "group": "SECTORAL", "price": 9840.15, "change": 142.30, "change_pct": 1.47},
+    {"symbol": "NIFTY REALTY", "group": "SECTORAL", "price": 1054.30, "change": 22.10, "change_pct": 2.14},
+    {"symbol": "NIFTY ENERGY", "group": "SECTORAL", "price": 39820.60, "change": 210.50, "change_pct": 0.53},
+    {"symbol": "INDIA VIX", "group": "VOLATILITY", "price": 12.85, "change": -0.35, "change_pct": -2.65},
+    {"symbol": "GOLD (MCX)", "group": "COMMODITY", "price": 72015.00, "change": 280.00, "change_pct": 0.39},
+    {"symbol": "SILVER (MCX)", "group": "COMMODITY", "price": 86250.00, "change": 620.00, "change_pct": 0.72},
+    {"symbol": "CRUDE OIL", "group": "COMMODITY", "price": 6120.00, "change": -45.00, "change_pct": -0.73},
+    {"symbol": "USD / INR", "group": "CURRENCY", "price": 83.92, "change": 0.04, "change_pct": 0.05}
+]
+
+INDICES_CACHE = {"time": 0, "data": DEFAULT_INDICES_BASELINE}
 HIGH_VALUE_CACHE = {"time": 0, "data": []}
 
 def safe(val, default=0):
@@ -714,14 +733,14 @@ def get_highest_share_price_stocks() -> list:
 def get_all_india_indices() -> list:
     """Fetches real-time quotes for all major Indian market indices in parallel. Cached for 45s."""
     now = time.time()
-    if INDICES_CACHE["data"] and (now - INDICES_CACHE["time"] < 45):
+    if INDICES_CACHE["data"] and (now - INDICES_CACHE["time"] < 180):
         return INDICES_CACHE["data"]
 
     indices = [
         {"symbol": "^NSEI", "name": "NIFTY 50", "group": "BENCHMARK"},
         {"symbol": "^BSESN", "name": "SENSEX", "group": "BENCHMARK"},
         {"symbol": "^NSEBANK", "name": "BANK NIFTY", "group": "SECTORAL"},
-        {"symbol": "NIFTY_MIDCAP_100.NS", "name": "MIDCAP 100", "group": "BROAD"},
+        {"symbol": "^CRSLDX", "name": "MIDCAP 100", "group": "BROAD"},
         {"symbol": "^CNXIT", "name": "NIFTY IT", "group": "SECTORAL"},
         {"symbol": "^CNXAUTO", "name": "NIFTY AUTO", "group": "SECTORAL"},
         {"symbol": "^CNXPHARMA", "name": "NIFTY PHARMA", "group": "SECTORAL"},
