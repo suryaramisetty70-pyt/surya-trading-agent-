@@ -54,6 +54,20 @@ def serve_assets(path):
     return jsonify({'error': 'Asset not found'}), 404
 
 
+@app.route('/favicon.ico')
+def serve_favicon():
+    if os.path.exists(FRONTEND_DIST):
+        return send_from_directory(FRONTEND_DIST, 'favicon.ico')
+    return ('', 204)
+
+
+@app.route('/robots.txt')
+def serve_robots():
+    if os.path.exists(FRONTEND_DIST):
+        return send_from_directory(FRONTEND_DIST, 'robots.txt')
+    return ('', 204)
+
+
 @app.route('/api/stock-data', methods=['GET'])
 def get_stock_data_route():
     ticker = request.args.get('ticker', 'RELIANCE').strip().upper()
