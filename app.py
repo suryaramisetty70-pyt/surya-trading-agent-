@@ -196,6 +196,8 @@ def refresh_universe_route():
         from ticker_universe import sync_universe
         res = sync_universe()
         return safe_jsonify({'status': 'success', 'data': res})
+    except ValueError as exc:
+        return safe_jsonify({'status': 'error', 'error_code': 'MASTER_UNAVAILABLE', 'message': str(exc)}, status=503)
     except Exception as e:
         return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 

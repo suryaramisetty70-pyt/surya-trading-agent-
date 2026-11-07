@@ -5,6 +5,7 @@ Groq-powered Stock Intelligence Engine
 - Live news + analyst data + quarterly financials from Yahoo/Google Finance
 """
 
+import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -65,7 +66,7 @@ def _format_news(news_list: list) -> str:
 
 
 def _format_analyst(analyst_data: dict, rating: str, count: int, target: float, target_high: float, target_low: float) -> str:
-    if not analyst_data and not rating:
+    if not analyst_data and (not rating or rating == "N/A"):
         return "No analyst data available."
     sb = analyst_data.get("strong_buy", 0)
     b = analyst_data.get("buy", 0)
@@ -117,62 +118,79 @@ Provider-reported analyst consensus:
 
 
 def generate_structured_fallback_report(ticker: str, data: dict, language: str = "English") -> str:
-    sym = data.get("ticker", ticker).upper()
-    name = data.get("company_name", sym)
-    price = data.get("current_price", 0.0)
-    change = data.get("change", 0.0)
-    change_pct = data.get("change_pct", 0.0)
-    currency = data.get("currency_symbol", "₹")
+    """Build the complete factual report independently of the AI provider."""
+    symbol = data.get("ticker") or ticker
+    name = data.get("company_name") or symbol
+    currency = data.get("currency_symbol") or ""
+    def metric(key, prefix="", suffix="", *, zero_is_missing=False):
+        value = data.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return "Unavailable"
+        if not math.isfinite(value) or (zero_is_missing and value == 0):
+            return "Unavailable"
+        return f"{prefix}{value:,.2f}{suffix}"
 
-    pe = data.get("pe_ratio", "N/A")
-    pb = data.get("pb_ratio", "N/A")
-    roe = data.get("roe", "N/A")
-    roce = data.get("roce", "N/A")
-    mkt_cap = data.get("market_cap_cr")
-    rev = data.get("revenue_cr")
-    market_cap = f"{currency}{mkt_cap:,.0f} Cr" if mkt_cap else "Unavailable"
-    revenue = f"{currency}{rev:,.0f} Cr" if rev else "Unavailable"
-    margin = data.get("profit_margin", "N/A")
+    lines = [
+        f"# {name} ({symbol}) — Institutional Market Intelligence Report",
+        f"- **Exchange**: {data.get('exchange') or 'Unavailable'}",
+        f"- **Price source**: {data.get('source') or 'Unavailable'}",
+        f"- **Quote timestamp**: {data.get('observed_at') or 'Unavailable'}",
+        f"- **Snapshot retrieved**: {data.get('as_of') or 'Unavailable'}",
+        "",
+    ]
+    sections = (
+        ("1. Quote and trading activity", (
+            ("Price", "current_price", currency, "", True),
+            ("Previous close", "prev_close", currency, "", True),
+            ("Change", "change_pct", "", "%", False),
+            ("Volume", "volume", "", " shares", True),
+            ("Average volume", "avg_volume", "", " shares", True),
+        )),
+        ("2. Technical indicators from available bars", (
+            ("RSI (14 sessions)", "rsi_14", "", "", False),
+            ("EMA (20 sessions)", "ema_20", currency, "", True),
+            ("EMA (50 sessions)", "ema_50", currency, "", True),
+            ("EMA (200 sessions)", "ema_200", currency, "", True),
+        )),
+        ("3. Valuation and fundamentals", (
+            ("Market capitalization", "market_cap_cr", currency, " Cr", True),
+            ("Trailing P/E", "pe_ratio", "", "", True),
+            ("Price/book", "pb_ratio", "", "", True),
+            ("Return on equity", "roe", "", "%", True),
+            ("Revenue", "revenue_cr", currency, " Cr", True),
+            ("Operating margin", "operating_margin", "", "%", True),
+            ("Debt/equity (provider units)", "debt_equity", "", "", True),
+        )),
+    )
+    for section, fields in sections:
+        lines.extend((f"## {section}", ""))
+        for label, key, prefix, suffix, zero_is_missing in fields:
+            lines.append(f"- **{label}**: {metric(key, prefix, suffix, zero_is_missing=zero_is_missing)}")
+        lines.append("")
 
-    rsi = data.get("rsi_14", "N/A")
-    ema20 = data.get("ema_20", "N/A")
-    ema50 = data.get("ema_50", "N/A")
-    ema200 = data.get("ema_200", "N/A")
-    w_high = data.get("week_52_high", "N/A")
-    w_low = data.get("week_52_low", "N/A")
-    as_of = data.get("as_of") or "Unavailable"
+    lines.extend(("## 4. Quarterly revenue", ""))
+    quarters = data.get("quarterly_revenue") or []
+    if quarters:
+        for quarter in quarters:
+            value = quarter.get("revenue_cr")
+            if isinstance(value, (float, int)) and math.isfinite(value):
+                lines.append(f"- {quarter.get('quarter', 'Unknown period')}: {currency}{value:,.2f} Cr")
+    else:
+        lines.append("Quarterly revenue unavailable from the provider.")
 
-    report = f"""# {name} ({sym}) — Institutional Market Intelligence Report
-> **Source**: MAX MARKET Institutional Deterministic Explainer Engine  
-> **Status**: Structured Quantitative Fallback (AI Provider Offline / Quota Guard)  
-> **Data snapshot**: {as_of} · **Currency**: {currency}
-
----
-
-## 1. Executive Summary & Market Position
-- **Current Traded Price**: {currency}{price:,.2f} ({change:+.2f} / {change_pct:+.2f}%)
-- **52-Week Corridor**: Low {currency}{w_low} — High {currency}{w_high}
-- **Market Capitalization**: {market_cap}
-- **Sector**: {data.get('sector', 'Diversified')} | **Industry**: {data.get('industry', 'Equities')}
-
-## 2. Quantitative Technical Assessment
-- **RSI (14-Day)**: {rsi} — {'Oversold rebound zone' if isinstance(rsi, (int, float)) and rsi < 40 else 'Overbought consolidation zone' if isinstance(rsi, (int, float)) and rsi > 70 else 'Neutral / healthy momentum corridor'}
-- **Trend Moving Averages**:
-  - 20-Day EMA: {currency}{ema20}
-  - 50-Day EMA: {currency}{ema50}
-  - 200-Day EMA: {currency}{ema200}
-- **Structural Alignment**: {'Bullish Golden Stack (Price > EMA20 > EMA50)' if (isinstance(ema20, (int, float)) and isinstance(ema50, (int, float)) and price > ema20 > ema50) else 'Consolidation / Mixed Trend'}
-
-## 3. Financial Fundamentals & Balance Sheet Health
-- **Valuation Multiples**: Trailing P/E: {pe} | P/B: {pb}
-- **Capital Efficiency**: Return on Equity (ROE): {roe}% | ROCE: {roce}%
-- **Revenue Scale**: {revenue} | Operating profit margin: {margin}
-- **Debt Profile**: Debt-to-Equity: {data.get('debt_equity', 'N/A')}
-
-## 4. Report scope
-- This fallback summarizes the available market snapshot. It does not compute forecast targets or trade levels.
-"""
-    return report
+    lines.extend(("", "## 5. Analyst coverage and recent news", ""))
+    if data.get("analyst_count", 0) and data.get("analyst_rating") not in (None, "", "N/A"):
+        lines.append(f"- Provider consensus: {data['analyst_rating']} ({data['analyst_count']} analysts)")
+        lines.append(f"- Provider consensus target: {metric('target_price', currency, zero_is_missing=True)}")
+    else:
+        lines.append("Analyst consensus unavailable from the provider.")
+    lines.extend(("", _format_news(data.get("news_headlines") or []), "", "## 6. Data limitations", ""))
+    if not data.get("observed_at"):
+        lines.append("- The provider did not supply an exchange quote timestamp.")
+    if data.get("status") == "HISTORICAL_CLOSE":
+        lines.append("- The displayed price is a historical close.")
+    lines.append("- Missing inputs are shown as unavailable. Analyst targets are provider estimates. Model forecasts are shown separately in Analytics.")
+    return "\n".join(lines)
 
 
 def _submit_report_job(fn, *args, **kwargs):
@@ -206,6 +224,7 @@ def analyze_stock(ticker: str, language: str = "English", api_key: str = "", mod
 
     if api_key is None:
         api_key = os.environ.get("GROQ_API_KEY", "")
+    report = generate_structured_fallback_report(clean_sym, data)
     master = ""
     source = "structured_fallback"
     if api_key and api_key not in {"PASTE_YOUR_KEY_HERE", "disabled", "mock", "fallback"}:
@@ -226,7 +245,7 @@ def analyze_stock(ticker: str, language: str = "English", api_key: str = "", mod
         "status": "success",
         "source": source,
         "ticker": clean_sym,
-        "language": language if source == "ai" else "English",
+        "language": "English",
         "stock_data": data,
-        "master_report": master if source == "ai" else generate_structured_fallback_report(clean_sym, data),
+        "master_report": f"{report}\n\n## AI commentary ({language})\n\n{master}" if source == "ai" else report,
     }

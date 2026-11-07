@@ -19,26 +19,7 @@ from datetime import datetime, timezone
 # In-memory cache for sub-second speeds (60s TTL)
 DATA_CACHE = {}
 TOP5_CACHE = {"timestamp": 0, "data": []}
-DEFAULT_INDICES_BASELINE = [
-    {"symbol": "NIFTY 50", "group": "BENCHMARK", "price": 24834.85, "change": 168.20, "change_pct": 0.68},
-    {"symbol": "SENSEX", "group": "BENCHMARK", "price": 81330.56, "change": 502.40, "change_pct": 0.62},
-    {"symbol": "BANK NIFTY", "group": "SECTORAL", "price": 55624.45, "change": 321.10, "change_pct": 0.58},
-    {"symbol": "MIDCAP 100", "group": "BROAD", "price": 57751.30, "change": 345.20, "change_pct": 0.60},
-    {"symbol": "NIFTY IT", "group": "SECTORAL", "price": 42150.80, "change": 480.15, "change_pct": 1.15},
-    {"symbol": "NIFTY AUTO", "group": "SECTORAL", "price": 26420.10, "change": 185.30, "change_pct": 0.71},
-    {"symbol": "NIFTY PHARMA", "group": "SECTORAL", "price": 22910.45, "change": -84.20, "change_pct": -0.37},
-    {"symbol": "NIFTY FMCG", "group": "SECTORAL", "price": 63450.20, "change": 120.40, "change_pct": 0.19},
-    {"symbol": "NIFTY METAL", "group": "SECTORAL", "price": 9840.15, "change": 142.30, "change_pct": 1.47},
-    {"symbol": "NIFTY REALTY", "group": "SECTORAL", "price": 1054.30, "change": 22.10, "change_pct": 2.14},
-    {"symbol": "NIFTY ENERGY", "group": "SECTORAL", "price": 39820.60, "change": 210.50, "change_pct": 0.53},
-    {"symbol": "INDIA VIX", "group": "VOLATILITY", "price": 12.85, "change": -0.35, "change_pct": -2.65},
-    {"symbol": "GOLD (MCX)", "group": "COMMODITY", "price": 72015.00, "change": 280.00, "change_pct": 0.39},
-    {"symbol": "SILVER (MCX)", "group": "COMMODITY", "price": 86250.00, "change": 620.00, "change_pct": 0.72},
-    {"symbol": "CRUDE OIL", "group": "COMMODITY", "price": 6120.00, "change": -45.00, "change_pct": -0.73},
-    {"symbol": "USD / INR", "group": "CURRENCY", "price": 83.92, "change": 0.04, "change_pct": 0.05}
-]
-
-INDICES_CACHE = {"time": 0, "data": DEFAULT_INDICES_BASELINE}
+INDICES_CACHE = {"time": 0, "data": []}
 HIGH_VALUE_CACHE = {"time": 0, "data": []}
 
 def safe(val, default=0.0):
@@ -216,7 +197,7 @@ def _fetch_google_finance_news(symbol: str) -> list:
             seen = set()
             for m in matches[:8]:
                 if m not in seen and not m.startswith("http") and len(m) > 25:
-                    headlines.append({"title": m, "source": "Google Finance", "date": datetime.now().strftime("%Y-%m-%d")})
+                    headlines.append({"title": m, "source": "Google Finance", "date": ""})
                     seen.add(m)
                 if len(headlines) >= 5:
                     break
@@ -329,10 +310,6 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         if now - cached_entry["time"] < 60:
             return cached_entry["data"]
 
-    symbols_to_try = [resolved_master]
-    if "." not in resolved_master and not resolved_master.startswith("^"):
-        symbols_to_try = [f"{resolved_master}.NS", resolved_master, f"{resolved_master}.BO"]
-
     info = {}
     fast_info = {}
     hist = pd.DataFrame()
@@ -341,7 +318,7 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     quarterly_revenue = []
     resolved_symbol = resolved_master
 
-    for sym in symbols_to_try:
+    for sym in (resolved_master,):
         try:
             stock = yf.Ticker(sym)
             
@@ -361,9 +338,9 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
             except Exception:
                 pass
 
-            hist = validate_bars(stock.history(period="6mo"), min_bars=1)
+            hist = validate_bars(stock.history(period="1y", timeout=4), min_bars=1)
             if hist.empty:
-                hist = validate_bars(stock.history(period="1mo"), min_bars=1)
+                hist = validate_bars(stock.history(period="1mo", timeout=4), min_bars=1)
 
             info = stock.info or {}
 
@@ -458,14 +435,22 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     if current_price <= 0 or not math.isfinite(current_price):
         raise ValueError(f"DATA_COVERAGE_ERROR: No active market quote or trading bars available for valid instrument '{raw_input}' from configured data provider.")
 
-    quote_id = f"Q_{raw_input}_{int(time.time() * 1000)}"
     as_of = datetime.now(timezone.utc).isoformat()
+    quote_id = f"Q_{resolved_master}_{int(time.time() * 1000)}"
+    observed_at = None
+    quote_status = "PROVIDER_QUOTE"
     if safe(nse_price_info.get("lastPrice")) > 0:
         quote_source = "NSE quote"
+        observed_at = nse_meta.get("lastUpdateTime")
     elif any(safe(value) > 0 for value in (info.get("currentPrice"), info.get("regularMarketPrice"), fast_info.get("last_price"))):
         quote_source = "Yahoo Finance quote"
+        exchange_time = safe(info.get("regularMarketTime"))
+        if 0 < exchange_time < 4_102_444_800:
+            observed_at = datetime.fromtimestamp(exchange_time, timezone.utc).isoformat()
     else:
         quote_source = "Yahoo Finance historical close"
+        observed_at = hist.index[-1].date().isoformat()
+        quote_status = "HISTORICAL_CLOSE"
 
     prev_close = (
         safe(nse_price_info.get("previousClose"))
@@ -612,10 +597,10 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         "raw_output": raw_display,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
         "quote_id": quote_id,
-        "observed_at": as_of,
+        "observed_at": observed_at,
         "as_of": as_of,
         "source": quote_source,
-        "status": "LIVE",
+        "status": quote_status,
     }
 
     DATA_CACHE[resolved_master] = {"time": time.time(), "data": data}
@@ -818,8 +803,8 @@ def get_all_india_indices() -> list:
         {"symbol": "^CNXREALTY", "name": "NIFTY REALTY", "group": "SECTORAL"},
         {"symbol": "^CNXENERGY", "name": "NIFTY ENERGY", "group": "SECTORAL"},
         {"symbol": "^INDIAVIX", "name": "INDIA VIX", "group": "VOLATILITY"},
-        {"symbol": "GC=F", "name": "GOLD (MCX)", "group": "COMMODITY"},
-        {"symbol": "SI=F", "name": "SILVER (MCX)", "group": "COMMODITY"},
+        {"symbol": "GC=F", "name": "Gold futures (COMEX)", "group": "COMMODITY"},
+        {"symbol": "SI=F", "name": "Silver futures (COMEX)", "group": "COMMODITY"},
         {"symbol": "CL=F", "name": "CRUDE OIL", "group": "COMMODITY"},
         {"symbol": "USDINR=X", "name": "USD / INR", "group": "CURRENCY"}
     ]
@@ -865,8 +850,8 @@ def get_all_india_indices() -> list:
 def get_multi_asset_galaxy_nodes() -> list:
     """Fetches multi-asset commodity and stock nodes with real market colors in parallel."""
     nodes = [
-        {"symbol": "GOLD", "name": "Gold Bullion (MCX)", "asset_class": "Precious Metals", "color": "#f59e0b", "ticker": "GC=F"},
-        {"symbol": "SILVER", "name": "Silver Bullion (MCX)", "asset_class": "Precious Metals", "color": "#e2e8f0", "ticker": "SI=F"},
+        {"symbol": "GOLD", "name": "Gold futures (COMEX)", "asset_class": "Precious Metals", "color": "#f59e0b", "ticker": "GC=F"},
+        {"symbol": "SILVER", "name": "Silver futures (COMEX)", "asset_class": "Precious Metals", "color": "#e2e8f0", "ticker": "SI=F"},
         {"symbol": "COPPER", "name": "High Grade Copper", "asset_class": "Base Metals", "color": "#d97706", "ticker": "HG=F"},
         {"symbol": "TATASTEEL", "name": "Tata Steel Ltd.", "asset_class": "Metals & Mining", "color": "#f97316", "ticker": "TATASTEEL.NS"},
         {"symbol": "HINDALCO", "name": "Hindalco Industries", "asset_class": "Metals & Mining", "color": "#ea580c", "ticker": "HINDALCO.NS"},
