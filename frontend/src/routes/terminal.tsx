@@ -1,3 +1,4 @@
+import { fetchProviderJson } from "@/lib/provider-request";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { usePaperTrading } from "@/lib/paperTrading";
@@ -375,26 +376,26 @@ function MarketsView() {
   const [screenerError, setScreenerError] = useState<string | null>(null);
   const [screenerData, setScreenerData] = useState<any[]>([]);
   const [asOf, setAsOf] = useState<string | null>(null);
-  const [feedSource, setFeedSource] = useState<string>("NSE Live Feed");
+  const [feedSource, setFeedSource] = useState<string>("");
+
+  const screenerRequest = useRef<AbortController | null>(null);
 
   const fetchScreener = (strat: string) => {
+    screenerRequest.current?.abort();
     setLoading(true);
     setScreenerError(null);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    screenerRequest.current = controller;
 
-    fetch(`/api/screener?strategy=${strat}`, { signal: controller.signal })
-      .then((r) => {
-        clearTimeout(timeout);
-        return r.json().then((json) => ({ ok: r.ok, status: r.status, json }));
-      })
-      .then(({ ok, status, json }) => {
+    fetchProviderJson(`/api/screener?strategy=${encodeURIComponent(strat)}`, { signal: controller.signal }, 10_000)
+      .then(({ status, json }) => {
+        if (controller.signal.aborted) return;
         if (json.status === "success") {
           const rows = Array.isArray(json.data) ? json.data : [];
           setScreenerData(rows);
           setScreenerState(json.state || (rows.length > 0 ? "ready" : "empty"));
           setAsOf(json.as_of || null);
-          setFeedSource(json.source || "NSE Live Feed");
+          setFeedSource(json.source || "");
           setScreenerError(json.state === "stale" ? json.message : null);
         } else {
           setScreenerData([]);
@@ -403,6 +404,7 @@ function MarketsView() {
         }
       })
       .catch((e) => {
+        if (controller.signal.aborted) return;
         console.error("Error fetching screener:", e);
         setScreenerData([]);
         if (e.name === "AbortError") {
@@ -413,11 +415,14 @@ function MarketsView() {
           setScreenerError("Unable to load screener dataset. Check connection and retry.");
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
   };
 
   useEffect(() => {
     fetchScreener(strategy);
+    return () => screenerRequest.current?.abort();
   }, [strategy]);
 
   const STRATEGIES = [
@@ -457,13 +462,17 @@ function MarketsView() {
         </button>
       </div>
 
+      {!loading && screenerState === "ready" && feedSource && (
+        <p className="text-xs text-muted-foreground">{feedSource}{asOf ? ` · As of ${asOf}` : ""}</p>
+      )}
+
       {screenerState === "stale" && asOf && (
         <div className="p-3 rounded-lg border border-chart-4/40 bg-chart-4/10 flex items-center justify-between text-xs text-foreground">
           <div className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-chart-4 animate-pulse" />
             <span>
               <strong>Stale Market Snapshot:</strong> Showing cached data as of{" "}
-              {new Date(asOf).toLocaleTimeString()} ({feedSource}). Live feed delayed.
+              {asOf} ({feedSource}).
             </span>
           </div>
           <button
@@ -515,7 +524,7 @@ function MarketsView() {
                 <tr className="text-muted-foreground border-b border-border text-[0.68rem] uppercase">
                   <th className="py-2.5 text-left">Ticker</th>
                   <th className="py-2.5 text-left">Sector</th>
-                  <th className="py-2.5 text-right">LTP (₹)</th>
+                  <th className="py-2.5 text-right">Price (₹)</th>
                   <th className="py-2.5 text-right">Change %</th>
                   <th className="py-2.5 text-right">RSI (14)</th>
                   <th className="py-2.5 text-right">Vol vs 20D</th>
@@ -1113,6 +1122,11 @@ function AiStudioView() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const reqIdRef = useRef<number>(0);
 
+  useEffect(() => () => {
+    reqIdRef.current++;
+    abortControllerRef.current?.abort();
+  }, []);
+
   const runAiAnalysis = async (targetSymbol?: string) => {
     const activeSymbol = (targetSymbol || symbol).trim().toUpperCase();
     if (!activeSymbol) return;
@@ -1129,20 +1143,14 @@ function AiStudioView() {
     setErrorMsg(null);
     setReportSource(null);
 
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, 12000);
-
     const customKey = localStorage.getItem("user_groq_api_key") || "";
     try {
-      const res = await fetch("/api/analyze", {
+      const { json: data } = await fetchProviderJson("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({ ticker: activeSymbol, language: lang, model, api_key: customKey }),
       });
-      clearTimeout(timeout);
-      const data = await res.json();
       if (reqIdRef.current !== currentReqId) return;
 
       if (data.status === "success") {
@@ -1168,6 +1176,8 @@ function AiStudioView() {
   };
 
   const handleSymbolChange = (newVal: string) => {
+    reqIdRef.current++;
+    setLoading(false);
     const clean = newVal.toUpperCase();
     setSymbol(clean);
     setReport(null);

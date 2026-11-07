@@ -1,5 +1,6 @@
+import { fetchProviderJson } from "@/lib/provider-request";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { TopBar } from "@/components/market/Chrome";
 import { Delta, Gauge, LivePrice, Panel } from "@/components/market/primitives";
 import CandleChart from "@/components/market/CandleChart";
@@ -632,12 +633,15 @@ function AiStudioPanel({ symbol, name }: { symbol: string; name: string }) {
   const [reportSource, setReportSource] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const reportRequest = useRef<AbortController | null>(null);
+
   // Clear report on symbol change to avoid stale carry-over
   useEffect(() => {
     setReport(null);
     setErrorMsg(null);
     setReportSource(null);
     setLoading(false);
+    return () => reportRequest.current?.abort();
   }, [symbol]);
 
   const runAnalysis = async () => {
@@ -646,19 +650,19 @@ function AiStudioPanel({ symbol, name }: { symbol: string; name: string }) {
     setErrorMsg(null);
     setReportSource(null);
 
+    reportRequest.current?.abort();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
+    reportRequest.current = controller;
     const customKey = localStorage.getItem("user_groq_api_key") || "";
 
     try {
-      const res = await fetch("/api/analyze", {
+      const { json: data } = await fetchProviderJson("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({ ticker: symbol, language: lang, api_key: customKey }),
       });
-      clearTimeout(timeout);
-      const data = await res.json();
+      if (controller.signal.aborted) return;
       if (data.status === "success") {
         setReport(data.master_report);
         setReportSource(data.source || "ai");
@@ -667,13 +671,14 @@ function AiStudioPanel({ symbol, name }: { symbol: string; name: string }) {
         setErrorMsg(data.message || "Error generating report.");
       }
     } catch (e: any) {
+      if (controller.signal.aborted) return;
       if (e.name === "AbortError") {
         setErrorMsg("AI Report request timed out. Provider latency exceeded deadline.");
       } else {
         setErrorMsg("Error connecting to AI Server. Please check network or API key.");
       }
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
