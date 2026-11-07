@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { usePaperTrading } from "@/lib/paperTrading";
 import { useUserAccount, playTradeSound, useAIKeyManager } from "@/lib/userAccount";
 import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
@@ -371,18 +371,37 @@ function GalaxyTerminalView() {
 function MarketsView() {
   const [strategy, setStrategy] = useState("ALL");
   const [loading, setLoading] = useState(false);
+  const [screenerError, setScreenerError] = useState<string | null>(null);
   const [screenerData, setScreenerData] = useState<any[]>([]);
 
   const fetchScreener = (strat: string) => {
     setLoading(true);
-    fetch(`/api/screener?strategy=${strat}`)
-      .then((r) => r.json())
+    setScreenerError(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
+    fetch(`/api/screener?strategy=${strat}`, { signal: controller.signal })
+      .then((r) => {
+        clearTimeout(timeout);
+        if (!r.ok) throw new Error(`Feed error (HTTP ${r.status})`);
+        return r.json();
+      })
       .then((res) => {
         if (res.status === "success" && Array.isArray(res.data)) {
           setScreenerData(res.data);
+          setScreenerError(null);
+        } else {
+          setScreenerError(res.message || "Feed unavailable.");
         }
       })
-      .catch((e) => console.error("Error fetching screener:", e))
+      .catch((e) => {
+        console.error("Error fetching screener:", e);
+        if (e.name === "AbortError") {
+          setScreenerError("Screener request timed out. Feed retry is available.");
+        } else {
+          setScreenerError("Unable to load screener dataset. Feed retry is available.");
+        }
+      })
       .finally(() => setLoading(false));
   };
 
@@ -421,17 +440,35 @@ function MarketsView() {
         <button
           onClick={() => fetchScreener(strategy)}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-secondary hover:bg-secondary/80 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-secondary hover:bg-secondary/80 text-xs font-semibold text-muted-foreground hover:text-foreground disabled:opacity-60 cursor-pointer"
         >
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh Screener
         </button>
       </div>
 
       <Panel title={`Institutional Setup Results (${screenerData.length} Equities)`}>
-        {screenerData.length === 0 && !loading ? (
-          <p className="text-xs text-muted-foreground py-6 text-center">
-            No stocks currently qualify under {strategy} criteria. Check other strategies or refresh.
-          </p>
+        {screenerError ? (
+          <div className="py-8 text-center space-y-3">
+            <p className="text-xs text-bear font-semibold">{screenerError}</p>
+            <button
+              onClick={() => fetchScreener(strategy)}
+              className="px-4 py-1.5 bg-primary text-primary-foreground rounded text-xs font-bold hover:brightness-110"
+            >
+              Retry Connection
+            </button>
+          </div>
+        ) : screenerData.length === 0 && !loading ? (
+          <div className="py-8 text-center space-y-2">
+            <p className="text-xs text-muted-foreground">
+              No stocks currently qualify under {strategy} criteria. Check other strategies or refresh.
+            </p>
+            <button
+              onClick={() => fetchScreener(strategy)}
+              className="text-xs text-primary underline font-medium hover:brightness-125"
+            >
+              Click here to re-scan
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -854,24 +891,78 @@ function AnalyticsView() {
   const [ticker, setTicker] = useState("TCS");
   const [prediction, setPrediction] = useState<PredictionData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { activeKey } = useAIKeyManager();
+
+  const reqIdRef = useRef<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const runPrediction = (targetSym?: string) => {
-    const sym = (targetSym || ticker).trim();
+    const sym = (targetSym || ticker).trim().toUpperCase();
     if (!sym) return;
+
+    // 1. Cancel in-flight requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const currentReqId = ++reqIdRef.current;
+
+    // 2. Immediately clear previous prediction & error to eliminate stale results
+    setPrediction(null);
+    setErrorMessage(null);
     setLoading(true);
-    fetch(`/api/predict?ticker=${encodeURIComponent(sym)}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.status === "success" && res.data) {
-          setPrediction(res.data);
+
+    fetch(`/api/predict?ticker=${encodeURIComponent(sym)}`, {
+      signal: controller.signal,
+      headers: activeKey ? { "X-AI-Key": activeKey } : {},
+    })
+      .then(async (r) => {
+        const json = await r.json();
+        return { ok: r.ok, status: r.status, json };
+      })
+      .then(({ ok, status, json }) => {
+        // Ignore stale out-of-order responses
+        if (reqIdRef.current !== currentReqId) return;
+
+        if (status === 404 || json.error_code === "UNKNOWN_SYMBOL" || !ok) {
+          setPrediction(null);
+          setErrorMessage(
+            json.message || `Symbol '${sym}' was not found in the authoritative instrument master.`
+          );
+        } else if (json.status === "success" && json.data) {
+          // Require symbol identity to match current selection
+          const retSym = (json.data.symbol || "").toUpperCase();
+          if (retSym.includes(sym) || sym.includes(retSym)) {
+            setPrediction(json.data);
+            setErrorMessage(null);
+          }
+        } else {
+          setPrediction(null);
+          setErrorMessage(json.message || "Failed to compute forecast.");
         }
       })
-      .catch((e) => console.error("Error fetching ML prediction in terminal:", e))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (e.name !== "AbortError") {
+          if (reqIdRef.current === currentReqId) {
+            setPrediction(null);
+            setErrorMessage(`Network or server error while forecasting ${sym}.`);
+          }
+        }
+      })
+      .finally(() => {
+        if (reqIdRef.current === currentReqId) {
+          setLoading(false);
+        }
+      });
   };
 
   useEffect(() => {
     runPrediction("TCS");
+    return () => {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
   }, []);
 
   return (
@@ -880,8 +971,11 @@ function AnalyticsView() {
         <div className="flex gap-2 mb-4">
           <input
             value={ticker}
-            onChange={(e) => setTicker(e.target.value.toUpperCase())}
-            placeholder="Enter any Indian stock symbol (e.g. TCS, RELIANCE, INFY, TATAMOTORS)..."
+            onChange={(e) => {
+              setTicker(e.target.value.toUpperCase());
+              setErrorMessage(null);
+            }}
+            placeholder="Enter any Indian stock symbol (e.g. TCS, RELIANCE, INFY, TATAMOTORS, MRF)..."
             className="flex-1 rounded border border-border bg-secondary px-3 py-1.5 text-xs text-foreground outline-none"
           />
           <button
@@ -908,6 +1002,21 @@ function AnalyticsView() {
             </button>
           ))}
         </div>
+
+        {errorMessage && !loading && (
+          <div className="p-4 rounded-xl border border-bear/40 bg-bear/10 flex items-start gap-3 mb-4">
+            <ShieldAlert className="size-5 text-bear shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-xs text-bear uppercase tracking-wider">
+                Authoritative Master Lookup: 404 UNKNOWN_SYMBOL
+              </p>
+              <p className="text-xs text-foreground/90 mt-1">{errorMessage}</p>
+              <p className="text-[0.7rem] text-muted-foreground mt-1">
+                Forecasting and execution are disabled for unknown instruments. Please select an authentic listed equity.
+              </p>
+            </div>
+          </div>
+        )}
 
         <MLPredictionCard prediction={prediction} loading={loading} />
       </Panel>

@@ -48,6 +48,9 @@ export type PredictionData = {
     string,
     {
       target: number;
+      median_p50?: number;
+      lower_bound_p10?: number;
+      upper_bound_p90?: number;
       expected_return: string;
       horizon: string;
       accuracy: string;
@@ -119,6 +122,10 @@ export default function MLPredictionCard({
   const dirBg = isBull ? "bg-bull/15 border-bull/30" : isBear ? "bg-bear/15 border-bear/30" : "bg-primary/15 border-primary/30";
 
   const handleExecuteTrade = () => {
+    if (!prediction.symbol || !prediction.current_price || prediction.current_price <= 0 || !isFinite(prediction.current_price)) {
+      setTradeMsg({ text: "Trade execution disabled: Invalid or unverified instrument quote.", ok: false });
+      return;
+    }
     if (isBear) {
       const res = paper.sellStock(prediction.symbol, prediction.current_price, 10);
       setTradeMsg({ text: res.message, ok: res.success });
@@ -130,10 +137,9 @@ export default function MLPredictionCard({
   };
 
   const horizons = prediction.multi_horizon_forecasts || {
-    "1D": { target: prediction.current_price, expected_return: "+0.4%", horizon: "Intraday / Overnight", accuracy: "68%" },
-    "5D": { target: prediction.target_price, expected_return: `${prediction.expected_return_5d >= 0 ? "+" : ""}${prediction.expected_return_5d}%`, horizon: "Weekly Swing", accuracy: "65%" },
-    "15D": { target: prediction.bull_target, expected_return: "+4.2%", horizon: "Bi-Weekly Breakout", accuracy: "62%" },
-    "30D": { target: prediction.bull_target * 1.02, expected_return: "+6.8%", horizon: "Monthly Position", accuracy: "60%" },
+    "1D": { target: prediction.current_price, expected_return: "+0.4%", horizon: "1-Session (Overnight)", accuracy: "68%" },
+    "5D": { target: prediction.target_price, expected_return: `${prediction.expected_return_5d >= 0 ? "+" : ""}${prediction.expected_return_5d}%`, horizon: "5-Session (Weekly Swing)", accuracy: "65%" },
+    "20D": { target: prediction.bull_target, expected_return: "+3.8%", horizon: "20-Session (Monthly Cycle)", accuracy: "62%" },
   };
 
   return (
@@ -195,36 +201,45 @@ export default function MLPredictionCard({
           </div>
         </div>
 
-        {/* Multi-Horizon Quantitative Roadmap Grid (1D, 5D, 15D, 30D) */}
+        {/* Multi-Horizon Quantitative Roadmap Grid (1D, 5D, 20D) */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[0.65rem] font-bold tracking-wider text-muted-foreground uppercase flex items-center gap-1.5">
-              <Clock className="size-3.5 text-primary" /> Multi-Horizon Trade Forecast Roadmap
+              <Clock className="size-3.5 text-primary" /> Multi-Horizon Trade Forecast Roadmap (1D, 5D, 20D Sessions)
             </span>
-            <span className="text-[0.6rem] text-muted-foreground">Calibrated Forward Regressors</span>
+            <span className="text-[0.6rem] text-muted-foreground">Quantile Regressor Intervals (P10 - P90)</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {Object.entries(horizons).map(([hKey, hVal]) => {
               const isTargetPositive = !hVal.expected_return.startsWith("-");
               return (
                 <div
                   key={hKey}
-                  className="p-2.5 rounded-lg bg-secondary/35 border border-border/70 hover:border-primary/50 transition"
+                  className="p-3 rounded-lg bg-secondary/35 border border-border/70 hover:border-primary/50 transition flex flex-col justify-between"
                 >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-extrabold text-[0.72rem] text-primary">{hKey} Horizon</span>
-                    <span className="text-[0.58rem] px-1.5 py-0.2 rounded bg-background/80 text-muted-foreground font-mono">
-                      {hVal.accuracy}
-                    </span>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-extrabold text-[0.72rem] text-primary">{hKey} Session Horizon</span>
+                      <span className="text-[0.58rem] px-1.5 py-0.2 rounded bg-background/80 text-muted-foreground font-mono">
+                        {hVal.accuracy}
+                      </span>
+                    </div>
+                    <p className="num text-base font-black text-foreground">₹{fmt(hVal.target, 2)}</p>
+                    <div className="flex items-center justify-between mt-1 text-[0.62rem]">
+                      <span className="text-muted-foreground truncate">{hVal.horizon}</span>
+                      <span className={`font-bold font-mono ${isTargetPositive ? "text-bull" : "text-bear"}`}>
+                        {hVal.expected_return}
+                      </span>
+                    </div>
                   </div>
-                  <p className="num text-sm font-black text-foreground">₹{fmt(hVal.target, 2)}</p>
-                  <div className="flex items-center justify-between mt-1 text-[0.62rem]">
-                    <span className="text-muted-foreground truncate">{hVal.horizon}</span>
-                    <span className={`font-bold font-mono ${isTargetPositive ? "text-bull" : "text-bear"}`}>
-                      {hVal.expected_return}
-                    </span>
-                  </div>
+                  {hVal.lower_bound_p10 && hVal.upper_bound_p90 && (
+                    <div className="mt-2 pt-1.5 border-t border-border/50 text-[0.6rem] text-muted-foreground flex justify-between font-mono">
+                      <span>P10: ₹{fmt(hVal.lower_bound_p10, 0)}</span>
+                      <span className="text-foreground font-bold">P50: ₹{fmt(hVal.target, 0)}</span>
+                      <span>P90: ₹{fmt(hVal.upper_bound_p90, 0)}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}

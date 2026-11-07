@@ -18,12 +18,23 @@ BROKER_CONFIG = {
 }
 
 WEBHOOK_LOGS = []
+PROCESSED_IDEMPOTENCY_KEYS = {}
 
 def process_webhook_order(payload: dict) -> dict:
     """
     Receives incoming webhook from TradingView or automated bot:
-    Payload example: { "symbol": "TCS", "action": "BUY", "quantity": 10, "price": 2500 }
+    Payload example: { "symbol": "TCS", "action": "BUY", "quantity": 10, "price": 2500, "idempotency_key": "tx_123" }
     """
+    idempotency_key = payload.get("idempotency_key")
+    if idempotency_key and idempotency_key in PROCESSED_IDEMPOTENCY_KEYS:
+        return {
+            "status": "success",
+            "message": "Order already processed (idempotent fill).",
+            "order": PROCESSED_IDEMPOTENCY_KEYS[idempotency_key],
+            "duplicate": True,
+            "idempotency_key": idempotency_key
+        }
+
     symbol = payload.get("symbol", "RELIANCE").upper()
     action = payload.get("action", "BUY").upper()
     quantity = int(payload.get("quantity", 1))
@@ -41,8 +52,12 @@ def process_webhook_order(payload: dict) -> dict:
         "quantity": quantity,
         "price": price,
         "status": "EXECUTED (PAPER)",
-        "source": source
+        "source": source,
+        "idempotency_key": idempotency_key
     }
+
+    if idempotency_key:
+        PROCESSED_IDEMPOTENCY_KEYS[idempotency_key] = order_record
 
     WEBHOOK_LOGS.insert(0, order_record)
     if len(WEBHOOK_LOGS) > 100:
@@ -51,7 +66,8 @@ def process_webhook_order(payload: dict) -> dict:
     return {
         "status": "success",
         "message": f"Order {order_id} filled: {action} {quantity} {symbol}",
-        "order": order_record
+        "order": order_record,
+        "idempotency_key": idempotency_key
     }
 
 def get_broker_status() -> dict:

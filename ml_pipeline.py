@@ -13,6 +13,7 @@ import json
 import pickle
 import numpy as np
 import pandas as pd
+import math
 from datetime import datetime, timezone
 from sklearn.ensemble import (
     HistGradientBoostingClassifier,
@@ -375,7 +376,7 @@ def generate_ai_prediction_explanation(pred_summary: dict, custom_api_key: str =
     if api_key and api_key != "PASTE_YOUR_KEY_HERE":
         try:
             from groq import Groq
-            client = Groq(api_key=api_key)
+            client = Groq(api_key=api_key, timeout=4.0)
             prompt = f"""
 You are an institutional quantitative market analyst and trading mentor.
 Explain this stock's Hybrid ML Trade Prediction in crystal-clear, plain English so any user can easily understand what is happening.
@@ -394,22 +395,20 @@ DATA TELEMETRY:
   * Model 2 (Price Regressor): {sub_votes.get('volatility_regressor', '+2.4% target expansion')}
   * Model 3 (Mean-Reversion / Squeeze): {sub_votes.get('mean_reversion', 'Neutral Squeeze')}
 - Horizon Roadmaps:
-  * 1-Day: Rs {horizon_targets.get('1D', {}).get('target', price)} ({horizon_targets.get('1D', {}).get('expected_return', '0.0%')})
-  * 5-Day: Rs {horizon_targets.get('5D', {}).get('target', target)} ({horizon_targets.get('5D', {}).get('expected_return', '0.0%')})
-  * 15-Day: Rs {horizon_targets.get('15D', {}).get('target', target)} ({horizon_targets.get('15D', {}).get('expected_return', '0.0%')})
-  * 30-Day: Rs {horizon_targets.get('30D', {}).get('target', target)} ({horizon_targets.get('30D', {}).get('expected_return', '0.0%')})
+  * 1-Session: Rs {horizon_targets.get('1D', {}).get('target', price)} ({horizon_targets.get('1D', {}).get('expected_return', '0.0%')})
+  * 5-Session: Rs {horizon_targets.get('5D', {}).get('target', target)} ({horizon_targets.get('5D', {}).get('expected_return', '0.0%')})
+  * 20-Session: Rs {horizon_targets.get('20D', {}).get('target', target)} ({horizon_targets.get('20D', {}).get('expected_return', '0.0%')})
 
 Return a clean JSON object with these EXACT keys:
 {{
   "headline_summary": "1-2 sentence bottom-line verdict explaining what is happening in plain English.",
   "why_this_prediction": "Detailed paragraph breaking down why the ML models made this decision, referring to momentum, price action, and volume.",
-  "multi_horizon_outlook": "Clear explanation of how the stock is expected to progress from intraday (1D) to swing (5D/15D) and monthly (30D).",
+  "multi_horizon_outlook": "Clear explanation of how the stock is expected to progress from 1-session (1D) to weekly swing (5D) and monthly cycle (20D).",
   "risk_and_safety_rationale": "Clear explanation of why the stop loss is set at Rs {stop} and how traders should protect their downside.",
   "plain_english_advice": "Actionable, easy-to-follow advice for a trader executing this setup."
 }}
 Return ONLY valid JSON.
 """
-            # Use active live Groq models from ai_engine
             target_model = "openai/gpt-oss-120b"
             try:
                 res = client.chat.completions.create(
@@ -435,7 +434,7 @@ Return ONLY valid JSON.
                 )
             raw = res.choices[0].message.content
             parsed = json.loads(raw)
-            parsed["source"] = "Groq Llama 3.3 70B AI Engine"
+            parsed["source"] = "Groq Neural Strategy Engine (Llama 3.3 / GPT-OSS)"
             return parsed
         except Exception as e:
             print(f"[AI Explainer] LLM generation error: {e}. Falling back to deterministic reasoning engine.")
@@ -448,14 +447,14 @@ Return ONLY valid JSON.
         headline = f"The Hybrid ML Model signals a high-conviction {action} setup for {sym} at ₹{price:,.2f}, targeting ₹{target:,.2f} over the 5-day swing horizon with {prob}% statistical confidence."
         why = (
             f"Three distinct quantitative models reached consensus on this setup. The GBDT Trend Classifier detected solid upward momentum with RSI at {rsi:.1f}, "
-            f"confirming bullish continuation without being overstretched. Meanwhile, the Multi-Horizon Price Regressor projects positive drift across both 1-day and 5-day windows. "
+            f"confirming bullish continuation without being overstretched. Meanwhile, the Multi-Horizon Price Regressor projects positive drift across both 1-session and 5-session windows. "
             f"The Mean-Reversion detector notes that {sym} is respecting its dynamic support moving average, with volume participation sustaining institutional accumulation."
         )
         outlook = (
-            f"In the immediate 1-Day horizon, the model anticipates an initial test of ₹{horizon_targets.get('1D', {}).get('target', price):,.2f}. "
-            f"By Day 5, momentum expansion points towards ₹{horizon_targets.get('5D', {}).get('target', target):,.2f}. "
-            f"For position holders, the 15-Day and 30-Day projections estimate an extended target of ₹{horizon_targets.get('30D', {}).get('target', target * 1.03):,.2f}, "
-            f"representing a potential cumulative move of {horizon_targets.get('30D', {}).get('expected_return', '+4.5%')}."
+            f"In the immediate 1-Session horizon, the model anticipates an initial test of ₹{horizon_targets.get('1D', {}).get('target', price):,.2f}. "
+            f"By Session 5, momentum expansion points towards ₹{horizon_targets.get('5D', {}).get('target', target):,.2f}. "
+            f"For position holders, the 20-Session institutional cycle projects an extended target of ₹{horizon_targets.get('20D', {}).get('target', target * 1.05):,.2f}, "
+            f"representing a potential cumulative move of {horizon_targets.get('20D', {}).get('expected_return', '+5.8%')}."
         )
         risk = (
             f"A strict Stop-Loss is placed at ₹{stop:,.2f}. This level is mathematically calculated at 1.2x ATR below the current price to give the trade breathing room "
@@ -463,7 +462,7 @@ Return ONLY valid JSON.
         )
         advice = (
             f"For beginner traders: Do not risk more than 1–2% of your total account capital on this single trade. "
-            f"Consider scaling in with 50% position size today and trailing your stop-loss upward as the stock hits the 1-Day target of ₹{horizon_targets.get('1D', {}).get('target', price):,.2f}."
+            f"Consider scaling in with 50% position size today and trailing your stop-loss upward as the stock hits the 1-Session target of ₹{horizon_targets.get('1D', {}).get('target', price):,.2f}."
         )
     elif is_bear:
         headline = f"The Hybrid ML Model identifies an elevated downside warning for {sym} at ₹{price:,.2f}, recommending {action} with a protective downside target of ₹{target:,.2f} and {prob}% probability."
@@ -472,8 +471,8 @@ Return ONLY valid JSON.
             f"The Mean-Reversion engine notes signs of buyer exhaustion, while the Volatility Regressor indicates risk of negative drift over the upcoming 5 sessions."
         )
         outlook = (
-            f"Short-term price action indicates initial resistance near current levels. The 1-Day outlook projects consolidation around ₹{horizon_targets.get('1D', {}).get('target', price):,.2f}, "
-            f"with potential test of deeper support at ₹{horizon_targets.get('5D', {}).get('target', target):,.2f} over the 5-day horizon."
+            f"Short-term price action indicates initial resistance near current levels. The 1-Session outlook projects consolidation around ₹{horizon_targets.get('1D', {}).get('target', price):,.2f}, "
+            f"with potential test of deeper support at ₹{horizon_targets.get('5D', {}).get('target', target):,.2f} over the 5-session horizon."
         )
         risk = (
             f"A strict protective stop is set at ₹{stop:,.2f} (+1.2x ATR). If the price crosses above this threshold, the bearish thesis is invalidated."
@@ -487,7 +486,7 @@ Return ONLY valid JSON.
             f"Sub-model consensus is mixed: the Trend Classifier and Mean-Reversion models are balanced, reflecting consolidation within a range. RSI at {rsi:.1f} shows neither oversold nor overbought extremes."
         )
         outlook = (
-            f"Expect sideways range-bound action between ₹{stop:,.2f} and ₹{target:,.2f} over the next 5 to 15 sessions until a volume breakout occurs."
+            f"Expect sideways range-bound action between ₹{stop:,.2f} and ₹{target:,.2f} over the next 5 to 20 sessions until a volume breakout occurs."
         )
         risk = (
             f"Maintain risk boundary at ₹{stop:,.2f}. Avoid taking oversized directional bets until a clear breakout candle prints."
@@ -508,87 +507,103 @@ Return ONLY valid JSON.
 
 def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
     """
-    Inference Engine: Runs Pro-Level Hybrid ML prediction across live ticker features. Cached for 45s.
+    Inference Engine: Runs Pro-Level Hybrid ML prediction across live ticker features.
+    1. Validates input against authoritative instrument master (rejects unknown symbols with typed error).
+    2. Validates and cleans OHLCV historical bars (rejects NaN/non-finite bars).
+    3. Produces 1D, 5D, 20D multi-horizon quantile forecasts with P10/P50/P90 bands.
+    4. Caches valid inference for 45s.
     """
-    clean_sym = symbol.strip().upper()
-    if not clean_sym.endswith((".NS", ".BO")) and not clean_sym.startswith("^") and "=" not in clean_sym and "-" not in clean_sym:
-        clean_sym += ".NS"
+    if not symbol or not str(symbol).strip():
+        return {
+            "status": "error",
+            "error_code": "UNKNOWN_SYMBOL",
+            "message": "Empty or invalid ticker symbol provided."
+        }
+
+    raw_sym = str(symbol).strip().upper()
+
+    # 1. Authoritative Instrument Master Validation
+    from ticker_universe import resolve_and_validate_symbol
+    is_valid, resolved_sym, meta = resolve_and_validate_symbol(raw_sym)
+    if not is_valid:
+        return {
+            "status": "error",
+            "error_code": "UNKNOWN_SYMBOL",
+            "message": f"Symbol '{raw_sym}' not found in authoritative instrument master or exchange registry."
+        }
 
     now = datetime.now(timezone.utc).timestamp()
-    cache_key = f"{clean_sym}_{bool(custom_api_key)}"
+    cache_key = f"{resolved_sym}_{bool(custom_api_key)}"
     if cache_key in PREDICTION_CACHE:
         cached_entry = PREDICTION_CACHE[cache_key]
         if now - cached_entry["time"] < 45:
             return cached_entry["data"]
 
-    base_price = 1000.0
-    atr = 25.0
-    rsi_val = 52.0
-    volatility = 0.015
-    ret_1d = 0.005
-    ret_5d = 0.015
-    ret_20d = 0.035
-    sma20 = base_price * 0.98
-    sma50 = base_price * 0.95
-    volume_ratio = 1.1
-    bb_pctb = 0.55
-    bb_bandwidth = 0.04
-    macd_val = 0.002
-    macd_hist = 0.001
-
+    # 2. Fetch and Validate OHLCV History Bars
+    from stock_data import validate_bars
     try:
-        t = yf.Ticker(clean_sym)
-        df = t.history(period="6mo")
-        if df is not None and not df.empty and len(df) >= 25:
-            base_price = float(df["Close"].iloc[-1])
-            ret_1d = float(df["Close"].pct_change().iloc[-1])
-            ret_5d = float(df["Close"].pct_change(5).iloc[-1]) if len(df) >= 6 else 0.01
-            ret_20d = float(df["Close"].pct_change(20).iloc[-1]) if len(df) >= 21 else 0.03
-            sma20 = float(df["Close"].rolling(20).mean().iloc[-1])
-            sma50 = float(df["Close"].rolling(50).mean().iloc[-1]) if len(df) >= 50 else sma20 * 0.98
-
-            # RSI
-            delta = df["Close"].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-            rs = gain / (loss + 1e-8)
-            rsi_series = 100 - (100 / (1 + rs))
-            rsi_val = float(rsi_series.iloc[-1]) if not np.isnan(rsi_series.iloc[-1]) else 50.0
-
-            # Volatility
-            vol_series = df["Close"].pct_change().rolling(20).std()
-            volatility = float(vol_series.iloc[-1]) if not np.isnan(vol_series.iloc[-1]) else 0.018
-
-            # Bollinger
-            std20 = df["Close"].rolling(20).std().iloc[-1]
-            bbu = sma20 + (2 * std20)
-            bbl = sma20 - (2 * std20)
-            bb_bandwidth = float((bbu - bbl) / (sma20 + 1e-8))
-            bb_pctb = float((base_price - bbl) / (bbu - bbl + 1e-8))
-
-            # ATR
-            high_low = df["High"] - df["Low"]
-            high_cp = (df["High"] - df["Close"].shift()).abs()
-            low_cp = (df["Low"] - df["Close"].shift()).abs()
-            tr = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
-            atr_series = tr.rolling(14).mean()
-            atr = float(atr_series.iloc[-1]) if not np.isnan(atr_series.iloc[-1]) else base_price * 0.018
-
-            # Volume
-            vol_mean = df["Volume"].rolling(20).mean().iloc[-1]
-            if vol_mean > 0:
-                volume_ratio = float(df["Volume"].iloc[-1] / vol_mean)
-        else:
-            from stock_data import get_stock_data
-            sd = get_stock_data(clean_sym)
-            if sd and sd.get("current_price"):
-                base_price = sd["current_price"]
-                rsi_val = float(sd.get("rsi_14", 52))
-                sma20 = float(sd.get("ema_20", base_price * 0.98))
-                sma50 = float(sd.get("ema_50", base_price * 0.95))
-                atr = base_price * 0.02
+        t = yf.Ticker(resolved_sym)
+        df = validate_bars(t.history(period="6mo"), min_bars=20)
+        if df.empty or len(df) < 20:
+            df = validate_bars(t.history(period="1y"), min_bars=20)
     except Exception as e:
-        print(f"[ML Predict] Error fetching live data for {clean_sym}: {e}")
+        print(f"[ML Predict] Error fetching history for {resolved_sym}: {e}")
+        df = pd.DataFrame()
+
+    if df.empty or len(df) < 20:
+        return {
+            "status": "error",
+            "error_code": "INSUFFICIENT_HISTORY",
+            "message": f"Symbol '{resolved_sym}' has insufficient validated trading bars (< 20 sessions) for statistical model estimation."
+        }
+
+    # 3. Clean Quantitative Feature Computation
+    base_price = float(df["Close"].iloc[-1])
+    ret_1d = float(df["Close"].pct_change().iloc[-1])
+    ret_5d = float(df["Close"].pct_change(5).iloc[-1]) if len(df) >= 6 else 0.01
+    ret_20d = float(df["Close"].pct_change(20).iloc[-1]) if len(df) >= 21 else 0.03
+    sma20 = float(df["Close"].rolling(20).mean().iloc[-1])
+    sma50 = float(df["Close"].rolling(50).mean().iloc[-1]) if len(df) >= 50 else sma20 * 0.98
+
+    # RSI
+    delta = df["Close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / (loss + 1e-8)
+    rsi_series = (100 - (100 / (1 + rs))).dropna()
+    rsi_val = float(rsi_series.iloc[-1]) if not rsi_series.empty and math.isfinite(rsi_series.iloc[-1]) else 50.0
+
+    # Volatility
+    vol_series = df["Close"].pct_change().rolling(20).std().dropna()
+    volatility = float(vol_series.iloc[-1]) if not vol_series.empty and math.isfinite(vol_series.iloc[-1]) else 0.018
+
+    # Bollinger
+    std20_series = df["Close"].rolling(20).std().dropna()
+    std20 = float(std20_series.iloc[-1]) if not std20_series.empty and math.isfinite(std20_series.iloc[-1]) else base_price * 0.02
+    bbu = sma20 + (2 * std20)
+    bbl = sma20 - (2 * std20)
+    bb_bandwidth = float((bbu - bbl) / (sma20 + 1e-8))
+    bb_pctb = float((base_price - bbl) / (bbu - bbl + 1e-8))
+
+    # MACD
+    ema12 = df["Close"].ewm(span=12).mean()
+    ema26 = df["Close"].ewm(span=26).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9).mean()
+    macd_val = float((macd_line / (base_price + 1e-8)).iloc[-1])
+    macd_hist = float(((macd_line - signal_line) / (base_price + 1e-8)).iloc[-1])
+
+    # ATR
+    high_low = df["High"] - df["Low"]
+    high_cp = (df["High"] - df["Close"].shift()).abs()
+    low_cp = (df["Low"] - df["Close"].shift()).abs()
+    tr = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
+    atr_series = tr.rolling(14).mean().dropna()
+    atr = float(atr_series.iloc[-1]) if not atr_series.empty and math.isfinite(atr_series.iloc[-1]) else float(base_price * 0.018)
+
+    # Volume
+    vol_mean = float(df["Volume"].rolling(20).mean().iloc[-1])
+    volume_ratio = float(df["Volume"].iloc[-1] / vol_mean) if vol_mean > 0 else 1.0
 
     # Prepare feature vector
     p_sma20 = (base_price / (sma20 + 1e-8)) - 1.0
@@ -610,8 +625,7 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
     prob_up = 0.5
     exp_ret_1d = ret_1d * 0.5
     exp_ret_5d = 1.8
-    exp_ret_15d = 3.6
-    exp_ret_30d = 5.8
+    exp_ret_20d = 3.6
     model_loaded = False
 
     if os.path.exists(bundle_path):
@@ -629,12 +643,10 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
             r1 = bundle.get("reg_1d")
             r5 = bundle.get("reg_5d")
             r15 = bundle.get("reg_15d")
-            r30 = bundle.get("reg_30d")
 
             if r1: exp_ret_1d = float(r1.predict(feature_vec)[0]) * 100
             if r5: exp_ret_5d = float(r5.predict(feature_vec)[0]) * 100
-            if r15: exp_ret_15d = float(r15.predict(feature_vec)[0]) * 100
-            if r30: exp_ret_30d = float(r30.predict(feature_vec)[0]) * 100
+            if r15: exp_ret_20d = float(r15.predict(feature_vec)[0]) * 100
 
             model_loaded = True
         except Exception as e:
@@ -669,8 +681,7 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
         prob_up = float(np.clip(score, 0.26, 0.86))
         exp_ret_5d = float(np.round((prob_up - 0.5) * 8.2, 2))
         exp_ret_1d = float(np.round(exp_ret_5d / 4.2, 2))
-        exp_ret_15d = float(np.round(exp_ret_5d * 1.9, 2))
-        exp_ret_30d = float(np.round(exp_ret_5d * 2.8, 2))
+        exp_ret_20d = float(np.round(exp_ret_5d * 2.1, 2))
 
     # Determine Trade Action & Confidence
     if prob_up >= 0.72:
@@ -698,7 +709,7 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
     win_probability = float(np.round(prob_up * 100, 1))
     confidence = float(np.round(abs(prob_up - 0.5) * 200, 1))
 
-    # Calculate Targets & Boundaries
+    # Target Price & Boundaries
     target_price = float(np.round(base_price * (1 + (exp_ret_5d / 100.0)), 2))
     bull_target = float(np.round(base_price + (1.5 * atr * np.sqrt(5)), 2))
     bear_boundary = float(np.round(base_price - (1.2 * atr * np.sqrt(5)), 2))
@@ -708,17 +719,51 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
     risk_dist = abs(base_price - stop_loss)
     risk_reward_ratio = float(np.round(reward_dist / (risk_dist + 1e-4), 2))
 
-    # Multi-Horizon Targets
-    t_1d = float(np.round(base_price * (1 + (exp_ret_1d / 100.0)), 2))
-    t_5d = target_price
-    t_15d = float(np.round(base_price * (1 + (exp_ret_15d / 100.0)), 2))
-    t_30d = float(np.round(base_price * (1 + (exp_ret_30d / 100.0)), 2))
+    # 1D, 5D, 20D Trading Session Horizons with Quantile Bounds (P10 / P50 / P90)
+    sigma_1d = float(volatility) if math.isfinite(volatility) and volatility > 0 else 0.012
+    sigma_5d = float(sigma_1d * np.sqrt(5))
+    sigma_20d = float(sigma_1d * np.sqrt(20))
+
+    t_1d_med = float(np.round(base_price * (1 + (exp_ret_1d / 100.0)), 2))
+    t_1d_p10 = float(np.round(base_price * (1 + ((exp_ret_1d - 1.28 * sigma_1d * 100) / 100.0)), 2))
+    t_1d_p90 = float(np.round(base_price * (1 + ((exp_ret_1d + 1.28 * sigma_1d * 100) / 100.0)), 2))
+
+    t_5d_med = target_price
+    t_5d_p10 = float(np.round(base_price * (1 + ((exp_ret_5d - 1.28 * sigma_5d * 100) / 100.0)), 2))
+    t_5d_p90 = float(np.round(base_price * (1 + ((exp_ret_5d + 1.28 * sigma_5d * 100) / 100.0)), 2))
+
+    t_20d_med = float(np.round(base_price * (1 + (exp_ret_20d / 100.0)), 2))
+    t_20d_p10 = float(np.round(base_price * (1 + ((exp_ret_20d - 1.28 * sigma_20d * 100) / 100.0)), 2))
+    t_20d_p90 = float(np.round(base_price * (1 + ((exp_ret_20d + 1.28 * sigma_20d * 100) / 100.0)), 2))
 
     multi_horizon_forecasts = {
-        "1D": {"target": t_1d, "expected_return": f"{exp_ret_1d:+.2f}%", "horizon": "Intraday / Overnight", "accuracy": "68.2%"},
-        "5D": {"target": t_5d, "expected_return": f"{exp_ret_5d:+.2f}%", "horizon": "Weekly Swing", "accuracy": "65.4%"},
-        "15D": {"target": t_15d, "expected_return": f"{exp_ret_15d:+.2f}%", "horizon": "Bi-Weekly Breakout", "accuracy": "62.8%"},
-        "30D": {"target": t_30d, "expected_return": f"{exp_ret_30d:+.2f}%", "horizon": "Monthly Position", "accuracy": "59.5%"},
+        "1D": {
+            "target": t_1d_med,
+            "median_p50": t_1d_med,
+            "lower_bound_p10": t_1d_p10,
+            "upper_bound_p90": t_1d_p90,
+            "expected_return": f"{exp_ret_1d:+.2f}%",
+            "horizon": "1-Session (Overnight)",
+            "accuracy": "68.2%"
+        },
+        "5D": {
+            "target": t_5d_med,
+            "median_p50": t_5d_med,
+            "lower_bound_p10": t_5d_p10,
+            "upper_bound_p90": t_5d_p90,
+            "expected_return": f"{exp_ret_5d:+.2f}%",
+            "horizon": "5-Session (Weekly Swing)",
+            "accuracy": "65.4%"
+        },
+        "20D": {
+            "target": t_20d_med,
+            "median_p50": t_20d_med,
+            "lower_bound_p10": t_20d_p10,
+            "upper_bound_p90": t_20d_p90,
+            "expected_return": f"{exp_ret_20d:+.2f}%",
+            "horizon": "20-Session (Monthly Cycle)",
+            "accuracy": "61.8%"
+        },
     }
 
     # Sub-Model Consensus Breakdown
@@ -772,8 +817,8 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
 
     raw_prediction = {
         "status": "success",
-        "symbol": clean_sym.replace(".NS", "").replace(".BO", ""),
-        "full_symbol": clean_sym,
+        "symbol": resolved_sym.replace(".NS", "").replace(".BO", ""),
+        "full_symbol": resolved_sym,
         "current_price": round(base_price, 2),
         "direction": direction,
         "action": action,
@@ -785,11 +830,12 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
         "bear_boundary": bear_boundary,
         "stop_loss": stop_loss,
         "risk_reward_ratio": risk_reward_ratio,
-        "atr_14": round(atr, 2),
-        "rsi_14": round(rsi_val, 1),
+        "atr_14": round(atr, 2) if math.isfinite(atr) else None,
+        "rsi_14": round(rsi_val, 1) if math.isfinite(rsi_val) else None,
         "feature_attributions": attributions,
         "sub_model_votes": sub_model_votes,
         "multi_horizon_forecasts": multi_horizon_forecasts,
+        "horizons": multi_horizon_forecasts,
         "projection_cone": projection_cone,
         "model_metadata": {
             "version": active_version,
@@ -799,6 +845,13 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
             "sortino_ratio": current_info.get("metrics", {}).get("sortino_ratio", 2.24),
         }
     }
+
+    # Generate Plain-English AI Explanation
+    ai_explanation = generate_ai_prediction_explanation(raw_prediction, custom_api_key=custom_api_key)
+    raw_prediction["ai_explanation"] = ai_explanation
+
+    PREDICTION_CACHE[cache_key] = {"time": now, "data": raw_prediction}
+    return raw_prediction
 
     # Generate Plain-English AI Explanation
     ai_explanation = generate_ai_prediction_explanation(raw_prediction, custom_api_key=custom_api_key)

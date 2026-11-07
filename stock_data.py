@@ -8,10 +8,12 @@ Sources: Yahoo Finance (fast_info + history + info) → NSE/BSE India API → Go
 import os
 import json
 import time
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import yfinance as yf
 import pandas as pd
+import numpy as np
 from datetime import datetime
 
 # In-memory cache for sub-second speeds (60s TTL)
@@ -39,14 +41,55 @@ DEFAULT_INDICES_BASELINE = [
 INDICES_CACHE = {"time": 0, "data": DEFAULT_INDICES_BASELINE}
 HIGH_VALUE_CACHE = {"time": 0, "data": []}
 
-def safe(val, default=0):
+def safe(val, default=0.0):
+    """Safely converts to float, returning default if None, NaN or Inf."""
     try:
         if val is None:
             return default
         v = float(val)
-        return v if v == v else default
+        if math.isnan(v) or math.isinf(v):
+            return default
+        return v
     except (TypeError, ValueError):
         return default
+
+def validate_bars(df: pd.DataFrame, min_bars: int = 1) -> pd.DataFrame:
+    """
+    Validates and cleans OHLCV price series:
+    1. Checks for empty/None DataFrame
+    2. Drops rows with missing, NaN, or non-finite OHLC values
+    3. Enforces positive prices (> 0)
+    4. Enforces high >= low consistency
+    5. Deduplicates session dates
+    6. Verifies minimum bar threshold
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame()
+
+    required = [c for c in ["Open", "High", "Low", "Close"] if c in df.columns]
+    if len(required) < 4:
+        return pd.DataFrame()
+
+    clean = df.dropna(subset=["Open", "High", "Low", "Close"]).copy()
+
+    for col in ["Open", "High", "Low", "Close"]:
+        clean[col] = pd.to_numeric(clean[col], errors="coerce")
+
+    clean = clean.dropna(subset=["Open", "High", "Low", "Close"])
+    clean = clean[
+        (clean["Close"] > 0) &
+        (clean["Open"] > 0) &
+        (clean["High"] > 0) &
+        (clean["Low"] > 0) &
+        (clean["High"] >= clean["Low"])
+    ]
+
+    clean = clean[~clean.index.duplicated(keep="last")]
+
+    if len(clean) < min_bars:
+        return pd.DataFrame()
+
+    return clean
 
 COMPANY_NAME_MAP = {
     "tata": "TATASTEEL.NS",
@@ -184,45 +227,57 @@ def _fetch_google_finance_news(symbol: str) -> list:
 def _compute_technicals(hist: pd.DataFrame) -> dict:
     result = {"rsi_14": None, "ema_20": None, "ema_50": None, "ema_200": None,
               "week_52_high": None, "week_52_low": None}
-    if hist is None or hist.empty or len(hist) < 5:
+    clean = validate_bars(hist, min_bars=5)
+    if clean.empty:
         return result
     try:
-        closes = hist["Close"]
+        closes = clean["Close"]
         if len(closes) >= 14:
             delta = closes.diff()
             gain = delta.clip(lower=0).rolling(14).mean()
             loss = (-delta.clip(upper=0)).rolling(14).mean()
-            rs = gain / loss
+            rs = gain / (loss + 1e-8)
             rsi_val = float(100 - (100 / (1 + rs.iloc[-1])))
-            if rsi_val == rsi_val:
+            if math.isfinite(rsi_val):
                 result["rsi_14"] = round(rsi_val, 2)
 
         if len(closes) >= 20:
-            result["ema_20"] = round(float(closes.ewm(span=20).mean().iloc[-1]), 2)
+            val = float(closes.ewm(span=20).mean().iloc[-1])
+            if math.isfinite(val):
+                result["ema_20"] = round(val, 2)
         if len(closes) >= 50:
-            result["ema_50"] = round(float(closes.ewm(span=50).mean().iloc[-1]), 2)
+            val = float(closes.ewm(span=50).mean().iloc[-1])
+            if math.isfinite(val):
+                result["ema_50"] = round(val, 2)
         if len(closes) >= 200:
-            result["ema_200"] = round(float(closes.ewm(span=200).mean().iloc[-1]), 2)
+            val = float(closes.ewm(span=200).mean().iloc[-1])
+            if math.isfinite(val):
+                result["ema_200"] = round(val, 2)
 
-        year_data = hist.tail(252)
-        result["week_52_high"] = round(float(year_data["High"].max()), 2)
-        result["week_52_low"] = round(float(year_data["Low"].min()), 2)
+        year_data = clean.tail(252)
+        h_val = float(year_data["High"].max())
+        l_val = float(year_data["Low"].min())
+        if math.isfinite(h_val):
+            result["week_52_high"] = round(h_val, 2)
+        if math.isfinite(l_val):
+            result["week_52_low"] = round(l_val, 2)
     except Exception:
         pass
     return result
 
 def _extract_chart_data(hist: pd.DataFrame) -> dict:
     chart = {"dates": [], "prices": [], "volumes": [], "ema20": [], "candles": []}
-    if hist is None or hist.empty:
+    clean = validate_bars(hist, min_bars=1)
+    if clean.empty:
         return chart
     try:
-        df = hist.tail(90).copy()
+        df = clean.tail(90).copy()
         df["EMA20"] = df["Close"].ewm(span=20).mean()
         
         dates = [idx.strftime("%b %d") for idx in df.index]
-        prices = [round(float(v), 2) for v in df["Close"]]
-        volumes = [int(v) for v in df["Volume"]]
-        ema20 = [round(float(v), 2) for v in df["EMA20"]]
+        prices = [round(float(v), 2) for v in df["Close"] if math.isfinite(v)]
+        volumes = [int(v) if math.isfinite(v) else 0 for v in df["Volume"]]
+        ema20 = [round(float(v), 2) if math.isfinite(v) else None for v in df["EMA20"]]
 
         candle_list = []
         for i, (idx, row) in enumerate(df.iterrows()):
@@ -231,15 +286,16 @@ def _extract_chart_data(hist: pd.DataFrame) -> dict:
             l_val = safe(row.get("Low", row["Close"]))
             c_val = safe(row["Close"])
             v_val = safe(row.get("Volume", 0))
-            candle_list.append({
-                "i": i,
-                "date": idx.strftime("%b %d"),
-                "o": round(o_val, 2),
-                "h": round(h_val, 2),
-                "l": round(l_val, 2),
-                "c": round(c_val, 2),
-                "v": int(v_val),
-            })
+            if all(math.isfinite(x) and x > 0 for x in [o_val, h_val, l_val, c_val]):
+                candle_list.append({
+                    "i": i,
+                    "date": idx.strftime("%b %d"),
+                    "o": round(o_val, 2),
+                    "h": round(h_val, 2),
+                    "l": round(l_val, 2),
+                    "c": round(c_val, 2),
+                    "v": int(v_val) if math.isfinite(v_val) else 0,
+                })
 
         chart = {
             "dates": dates,
@@ -256,9 +312,16 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     """
     Fetch comprehensive live data for ANY stock or company name worldwide.
     Resolves company names (e.g. 'tata', 'apple', 'reliance') to real exchange symbols.
+    Validates strictly against authoritative instrument master before returning.
     """
     resolved_ticker = _resolve_company_name_to_symbol(ticker)
     raw_input = resolved_ticker.upper()
+
+    # Authoritative master validation
+    from ticker_universe import resolve_and_validate_symbol
+    is_valid, resolved_master, master_meta = resolve_and_validate_symbol(raw_input)
+    if not is_valid:
+        raise ValueError(f"UNKNOWN_SYMBOL: Symbol '{raw_input}' not found in authoritative instrument master or exchange registry.")
 
     now = time.time()
     if use_cache and raw_input in DATA_CACHE:
@@ -266,20 +329,9 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         if now - cached_entry["time"] < 60:
             return cached_entry["data"]
 
-    def safe(val, default=0):
-        try:
-            if val is None:
-                return default
-            v = float(val)
-            return v if v == v else default
-        except (TypeError, ValueError):
-            return default
-
-    symbols_to_try = []
-    if "." in raw_input or "-" in raw_input or raw_input.startswith("^"):
-        symbols_to_try = [raw_input]
-    else:
-        symbols_to_try = [f"{raw_input}.NS", raw_input, f"{raw_input}.BO"]
+    symbols_to_try = [resolved_master]
+    if "." not in resolved_master and not resolved_master.startswith("^"):
+        symbols_to_try = [f"{resolved_master}.NS", resolved_master, f"{resolved_master}.BO"]
 
     info = {}
     fast_info = {}
@@ -287,7 +339,7 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     yf_news = []
     analyst_data = {}
     quarterly_revenue = []
-    resolved_symbol = raw_input
+    resolved_symbol = resolved_master
 
     for sym in symbols_to_try:
         try:
@@ -309,9 +361,9 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
             except Exception:
                 pass
 
-            hist = stock.history(period="6mo")
+            hist = validate_bars(stock.history(period="6mo"), min_bars=1)
             if hist.empty:
-                hist = stock.history(period="1mo")
+                hist = validate_bars(stock.history(period="1mo"), min_bars=1)
 
             info = stock.info or {}
 
@@ -402,6 +454,9 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         or safe(fast_info.get("last_price"))
         or hist_last_close
     )
+
+    if current_price <= 0 or not math.isfinite(current_price):
+        raise ValueError(f"UNKNOWN_SYMBOL: No active market quote or trading bars available for '{raw_input}'.")
 
     prev_close = (
         safe(nse_price_info.get("previousClose"))

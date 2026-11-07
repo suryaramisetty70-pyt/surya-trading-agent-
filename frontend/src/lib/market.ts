@@ -30,7 +30,14 @@ const seedList: Omit<Quote, "change" | "changePct">[] = [
   { symbol: "NTPC", name: "NTPC Ltd.", exchange: "NSE", price: 372.8, sector: "Utilities", marketCap: "3.61T", volume: "14.2M" },
   { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd.", exchange: "NSE", price: 1432.15, sector: "Communication", marketCap: "8.31T", volume: "6.05M" },
   { symbol: "DLF", name: "DLF Ltd.", exchange: "NSE", price: 812.4, sector: "Real Estate", marketCap: "2.01T", volume: "4.31M" },
-  { symbol: "TATASTEEL", name: "Tata Steel Ltd.", exchange: "NSE", price: 168.9, sector: "Materials", marketCap: "2.11T", volume: "48.9M" },
+  { symbol: "MRF", name: "MRF Ltd.", exchange: "NSE", price: 132450.0, sector: "Consumer Cyclical", marketCap: "0.56T", volume: "12.4K" },
+  { symbol: "SBIN", name: "State Bank of India", exchange: "NSE", price: 824.5, sector: "Financials", marketCap: "7.35T", volume: "18.9M" },
+  { symbol: "TATAPOWER", name: "Tata Power Company Ltd.", exchange: "NSE", price: 432.1, sector: "Utilities", marketCap: "1.38T", volume: "14.2M" },
+  { symbol: "ETERNAL", name: "Eternal Ltd. (Zomato)", exchange: "NSE", price: 262.4, sector: "Consumer Cyclical", marketCap: "2.31T", volume: "25.6M" },
+  { symbol: "ZOMATO", name: "Eternal Ltd. (Zomato)", exchange: "NSE", price: 262.4, sector: "Consumer Cyclical", marketCap: "2.31T", volume: "25.6M" },
+  { symbol: "SWIGGY", name: "Swiggy Ltd.", exchange: "NSE", price: 485.2, sector: "Consumer Cyclical", marketCap: "1.08T", volume: "19.4M" },
+  { symbol: "PAGEIND", name: "Page Industries Ltd.", exchange: "NSE", price: 44250.0, sector: "Consumer Cyclical", marketCap: "0.49T", volume: "28.5K" },
+  { symbol: "BOSCHLTD", name: "Bosch Ltd.", exchange: "NSE", price: 34120.0, sector: "Industrials", marketCap: "1.01T", volume: "34.1K" },
 ];
 
 export const SECTORS = [
@@ -189,20 +196,12 @@ export function fmt(n: number, d = 2) {
   return n.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
-export function findQuote(symbol: string) {
-  const existing = BASE_QUOTES.find((q) => q.symbol.toLowerCase() === symbol.toLowerCase());
+export function findQuote(symbol: string): Quote | null {
+  if (!symbol) return null;
+  const clean = symbol.trim().toUpperCase().replace(".NS", "").replace(".BO", "");
+  const existing = BASE_QUOTES.find((q) => q.symbol.toUpperCase() === clean);
   if (existing) return existing;
 
-  const clean = symbol.toUpperCase().replace(".NS", "").replace(".BO", "");
-  return {
-    symbol: clean,
-    name: `${clean} Ltd.`,
-    exchange: "NSE",
-    price: 1250.0,
-    change: 15.4,
-    changePct: 1.25,
-    sector: "Technology & Diversified",
-    marketCap: "1.25T",
-    volume: "3.5M",
-  };
+  // Unknown / unlisted symbols return null to enforce strict 404 UNKNOWN_SYMBOL routing
+  return null;
 }

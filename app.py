@@ -17,7 +17,10 @@ for _key in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS
     os.environ.pop(_key, None)
 
 # ── Standard imports ──────────────────────────────────────────────────────────
-from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
+import math
+import json
+import numpy as np
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, Response
 from dotenv import load_dotenv
 load_dotenv(override=False)   # .env won't override what we already set above
 
@@ -28,6 +31,46 @@ if os.path.exists(FRONTEND_DIST):
     app = Flask(__name__, static_folder=os.path.join(FRONTEND_DIST, 'assets'))
 else:
     app = Flask(__name__, template_folder='templates', static_folder='static')
+
+app.json.allow_nan = False
+
+def sanitize_for_json(obj):
+    """
+    Recursively sanitizes Python objects before JSON serialization to ensure
+    strict RFC 8259 compliance:
+    - np.nan, float('nan'), math.isnan -> None (serializes to JSON null)
+    - np.inf, -np.inf, math.isinf -> None (serializes to JSON null)
+    - np.generic types (np.float64, np.int64, np.bool_) -> native Python types
+    - datetime / date / timestamp -> ISO formatted strings
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, (float, np.floating)):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return float(obj)
+    if isinstance(obj, (int, np.integer)):
+        return int(obj)
+    if isinstance(obj, (bool, np.bool_)):
+        return bool(obj)
+    if isinstance(obj, (str, bytes)):
+        return obj if isinstance(obj, str) else obj.decode('utf-8', errors='replace')
+    if isinstance(obj, dict):
+        return {str(k): sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [sanitize_for_json(item) for item in obj]
+    if hasattr(obj, 'isoformat'):
+        return obj.isoformat()
+    return obj
+
+def safe_jsonify(data, status=200):
+    clean = sanitize_for_json(data)
+    body = json.dumps(clean, allow_nan=False)
+    resp = Response(body, status=status, mimetype='application/json')
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+    return resp
 
 @app.after_request
 def add_cors_headers(response):
@@ -74,9 +117,17 @@ def get_stock_data_route():
     try:
         from stock_data import get_stock_data
         data = get_stock_data(ticker)
-        return jsonify({'status': 'success', 'data': data})
+        return safe_jsonify({'status': 'success', 'data': data})
+    except ValueError as ve:
+        err_msg = str(ve)
+        status_code = 404 if "UNKNOWN_SYMBOL" in err_msg else 400
+        return safe_jsonify({
+            'status': 'error',
+            'error_code': 'UNKNOWN_SYMBOL' if status_code == 404 else 'INVALID_REQUEST',
+            'message': err_msg
+        }, status=status_code)
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/top-stocks', methods=['GET'])
@@ -84,9 +135,9 @@ def get_top_stocks_route():
     try:
         from stock_data import get_top_5_stocks
         top_stocks = get_top_5_stocks()
-        return jsonify({'status': 'success', 'stocks': top_stocks})
+        return safe_jsonify({'status': 'success', 'stocks': top_stocks})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -99,15 +150,15 @@ def analyze_stock():
     api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
 
     if not api_key or api_key == "PASTE_YOUR_KEY_HERE":
-        return jsonify({
+        return safe_jsonify({
             'status': 'error',
             'message': 'Groq API key is not set! Please enter your API key in Settings.'
-        }), 400
+        }, status=400)
 
     try:
         from ai_engine import analyze_stock as run_analysis
         result = run_analysis(ticker=ticker, language=language, api_key=api_key, model=model)
-        return jsonify({
+        return safe_jsonify({
             'status': 'success',
             'ticker': result['ticker'],
             'language': result['language'],
@@ -118,7 +169,7 @@ def analyze_stock():
             'stock_data': result['stock_data'],
         })
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/universe/stats', methods=['GET'])
@@ -126,9 +177,9 @@ def get_universe_stats_route():
     try:
         from ticker_universe import get_universe_stats
         stats = get_universe_stats()
-        return jsonify({'status': 'success', 'stats': stats})
+        return safe_jsonify({'status': 'success', 'stats': stats})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/universe/refresh', methods=['POST'])
@@ -136,9 +187,9 @@ def refresh_universe_route():
     try:
         from ticker_universe import sync_universe
         res = sync_universe()
-        return jsonify({'status': 'success', 'data': res})
+        return safe_jsonify({'status': 'success', 'data': res})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/predict', methods=['GET', 'POST'])
@@ -155,9 +206,21 @@ def predict_stock_route():
     try:
         from ml_pipeline import predict_stock
         pred = predict_stock(ticker, custom_api_key=custom_key)
-        return jsonify({'status': 'success', 'data': pred})
+        if pred.get("status") == "error":
+            err_code = pred.get("error_code", "ERROR")
+            status_code = 404 if err_code == "UNKNOWN_SYMBOL" else 400
+            return safe_jsonify(pred, status=status_code)
+        return safe_jsonify({'status': 'success', 'data': pred})
+    except ValueError as ve:
+        err_msg = str(ve)
+        status_code = 404 if "UNKNOWN_SYMBOL" in err_msg else 400
+        return safe_jsonify({
+            'status': 'error',
+            'error_code': 'UNKNOWN_SYMBOL' if status_code == 404 else 'INVALID_REQUEST',
+            'message': err_msg
+        }, status=status_code)
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/options-chain', methods=['GET'])
@@ -166,9 +229,9 @@ def get_options_chain_route():
     try:
         from options_engine import get_options_chain
         chain = get_options_chain(ticker)
-        return jsonify({'status': 'success', 'data': chain})
+        return safe_jsonify({'status': 'success', 'data': chain})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/screener', methods=['GET'])
@@ -177,20 +240,42 @@ def get_screener_route():
     try:
         from screener import scan_stocks
         results = scan_stocks(strategy)
-        return jsonify({'status': 'success', 'data': results})
+        return safe_jsonify({'status': 'success', 'data': results})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/webhook/order', methods=['POST'])
 def webhook_order_route():
     payload = request.get_json(silent=True) or request.form.to_dict() or {}
+    symbol = str(payload.get("symbol") or payload.get("ticker") or "").strip().upper()
+    if not symbol:
+        return safe_jsonify({'status': 'error', 'error_code': 'INVALID_REQUEST', 'message': 'symbol or ticker is required'}, status=400)
+
     try:
+        from ticker_universe import resolve_and_validate_symbol
+        is_valid, resolved_sym, meta = resolve_and_validate_symbol(symbol)
+        if not is_valid:
+            return safe_jsonify({
+                'status': 'error',
+                'error_code': 'UNKNOWN_SYMBOL',
+                'message': f"Symbol '{symbol}' not found in authoritative instrument master."
+            }, status=404)
+
+        price = float(payload.get("price", 0.0))
+        if price <= 0 or not math.isfinite(price):
+            return safe_jsonify({
+                'status': 'error',
+                'error_code': 'INVALID_PRICE',
+                'message': f"Order rejected: Price must be a finite positive number, received: {price}"
+            }, status=400)
+
         from broker_gateway import process_webhook_order
         res = process_webhook_order(payload)
-        return jsonify(res)
+        status_code = 200 if res.get("status") == "success" else 400
+        return safe_jsonify(res, status=status_code)
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/broker/status', methods=['GET'])
@@ -198,9 +283,9 @@ def get_broker_status_route():
     try:
         from broker_gateway import get_broker_status
         res = get_broker_status()
-        return jsonify({'status': 'success', 'data': res})
+        return safe_jsonify({'status': 'success', 'data': res})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/models/retrain', methods=['POST'])
@@ -208,9 +293,9 @@ def retrain_model_route():
     try:
         from ml_pipeline import run_auto_training_job
         res = run_auto_training_job()
-        return jsonify({'status': 'success', 'data': res})
+        return safe_jsonify({'status': 'success', 'data': res})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/models/history', methods=['GET'])
@@ -218,9 +303,9 @@ def get_model_history_route():
     try:
         from ml_pipeline import list_all_models
         res = list_all_models()
-        return jsonify({'status': 'success', 'data': res})
+        return safe_jsonify({'status': 'success', 'data': res})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/models/rollback', methods=['POST'])
@@ -228,14 +313,14 @@ def rollback_model_route():
     payload = request.json or {}
     target_version = payload.get('target_version', '').strip()
     if not target_version:
-        return jsonify({'status': 'error', 'message': 'target_version is required'}), 400
+        return safe_jsonify({'status': 'error', 'message': 'target_version is required'}, status=400)
 
     try:
         from ml_pipeline import rollback_model
         res = rollback_model(target_version)
-        return jsonify({'status': 'success', 'data': res})
+        return safe_jsonify({'status': 'success', 'data': res})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/ai-status', methods=['GET', 'POST'])
@@ -245,28 +330,34 @@ def ai_status_route():
     api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
 
     if not api_key:
-        return jsonify({'status': 'error', 'online': False, 'message': 'No API Key configured'})
+        return safe_jsonify({'status': 'error', 'online': False, 'message': 'No API Key configured'})
 
     try:
         from groq import Groq
-        client = Groq(api_key=api_key)
+        client = Groq(api_key=api_key, timeout=4.0)
+        avail = [m.id for m in client.models.list().data]
+        test_model = "openai/gpt-oss-120b" if "openai/gpt-oss-120b" in avail else (
+            "qwen/qwen3.8-27b" if "qwen/qwen3.8-27b" in avail else (
+                "llama-3.3-70b-versatile" if "llama-3.3-70b-versatile" in avail else avail[0]
+            )
+        )
         res = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=test_model,
             messages=[{"role": "user", "content": "ping"}],
             max_tokens=5
         )
-        return jsonify({
+        return safe_jsonify({
             'status': 'success',
             'online': True,
             'active_key_preview': f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***",
             'models': [
-                {'id': 'llama-3.3-70b-versatile', 'name': 'AI 1: Groq Llama 3.3 70B (Ultra-Fast Institutional)'},
-                {'id': 'mixtral-8x7b-32768', 'name': 'AI 2: Groq Mixtral 8x7B (High-Speed Strategy Engine)'},
-                {'id': 'deepseek-r1-distill-llama-70b', 'name': 'AI 3: DeepSeek R1 70B (Deep Reasoning)'}
+                {'id': 'openai/gpt-oss-120b', 'name': 'AI 1: Groq GPT-OSS 120B (Institutional Quantitative Core)'},
+                {'id': 'qwen/qwen3.8-27b', 'name': 'AI 2: Groq Qwen 3.8 27B (High-Speed Strategy Engine)'},
+                {'id': 'openai/gpt-oss-20b', 'name': 'AI 3: Groq GPT-OSS 20B (Low-Latency Execution Engine)'}
             ]
         })
     except Exception as e:
-        return jsonify({'status': 'error', 'online': False, 'message': str(e)})
+        return safe_jsonify({'status': 'error', 'online': False, 'message': str(e)})
 
 
 @app.route('/api/top-value-stocks', methods=['GET'])
@@ -274,9 +365,9 @@ def get_top_value_stocks_route():
     try:
         from stock_data import get_highest_share_price_stocks
         data = get_highest_share_price_stocks()
-        return jsonify({'status': 'success', 'data': data})
+        return safe_jsonify({'status': 'success', 'data': data})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/all-india-indices', methods=['GET'])
@@ -284,9 +375,9 @@ def get_all_india_indices_route():
     try:
         from stock_data import get_all_india_indices
         data = get_all_india_indices()
-        return jsonify({'status': 'success', 'data': data})
+        return safe_jsonify({'status': 'success', 'data': data})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 @app.route('/api/galaxy-nodes', methods=['GET'])
@@ -294,9 +385,9 @@ def get_galaxy_nodes_route():
     try:
         from stock_data import get_multi_asset_galaxy_nodes
         data = get_multi_asset_galaxy_nodes()
-        return jsonify({'status': 'success', 'data': data})
+        return safe_jsonify({'status': 'success', 'data': data})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
 
 if __name__ == '__main__':

@@ -59,40 +59,64 @@ function StockPage() {
   const [tradeMsg, setTradeMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const activeSymbol = quote.symbol.toUpperCase();
+
+    // Immediately clear previous symbol's data and explanation to prevent stale view
+    setLiveData(null);
+    setMlPrediction(null);
     setLoadingLive(true);
     setLoadingPrediction(true);
 
-    fetch(`/api/stock-data?ticker=${encodeURIComponent(quote.symbol)}`)
-      .then((res) => res.json())
+    fetch(`/api/stock-data?ticker=${encodeURIComponent(activeSymbol)}`, {
+      signal: controller.signal,
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((json) => {
-        if (!cancelled && json.status === "success" && json.data) {
-          setLiveData(json.data);
+        if (json.status === "success" && json.data) {
+          const retTicker = (json.data.ticker || "").toUpperCase();
+          if (retTicker.includes(activeSymbol) || activeSymbol.includes(retTicker)) {
+            setLiveData(json.data);
+          }
         }
       })
-      .catch((err) => console.error("Error fetching live stock data:", err))
-      .finally(() => {
-        if (!cancelled) setLoadingLive(false);
-      });
+      .catch((err) => {
+        if (err.name !== "AbortError") {
+          console.error("Error fetching live stock data:", err);
+        }
+      })
+      .finally(() => setLoadingLive(false));
 
-    fetch(`/api/predict?ticker=${encodeURIComponent(quote.symbol)}`, {
+    fetch(`/api/predict?ticker=${encodeURIComponent(activeSymbol)}`, {
+      signal: controller.signal,
       headers: activeKey ? { "X-AI-Key": activeKey } : {},
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((json) => {
-        if (!cancelled && json.status === "success" && json.data) {
-          setMlPrediction(json.data);
+        if (json.status === "success" && json.data) {
+          const retSymbol = (json.data.symbol || "").toUpperCase();
+          if (retSymbol.includes(activeSymbol) || activeSymbol.includes(retSymbol)) {
+            setMlPrediction(json.data);
+          }
         }
       })
-      .catch((err) => console.error("Error fetching ML prediction:", err))
-      .finally(() => {
-        if (!cancelled) setLoadingPrediction(false);
-      });
+      .catch((err) => {
+        if (err.name !== "AbortError") {
+          console.error("Error fetching ML prediction:", err);
+        }
+      })
+      .finally(() => setLoadingPrediction(false));
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [quote.symbol]);
+  }, [quote.symbol, activeKey]);
 
   // Derived 100% Real Fields (falling back gracefully to quote if loading)
   const price = liveData?.current_price ?? quote.price;

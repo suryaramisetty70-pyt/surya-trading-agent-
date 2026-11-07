@@ -194,53 +194,154 @@ def sync_universe():
     }
 
 
-def resolve_symbol(query: str) -> str:
+# Global Indices and Multi-Asset Mappings
+KNOWN_GLOBAL_ASSETS = {
+    "^NSEI": {"name": "NIFTY 50", "exchange": "NSE", "sector": "Benchmark Index"},
+    "^BSESN": {"name": "S&P BSE SENSEX", "exchange": "BSE", "sector": "Benchmark Index"},
+    "^NSEBANK": {"name": "NIFTY Bank", "exchange": "NSE", "sector": "Banking Index"},
+    "^CNXIT": {"name": "NIFTY IT", "exchange": "NSE", "sector": "Sectoral Index"},
+    "NIFTY": {"name": "NIFTY 50", "exchange": "NSE", "sector": "Benchmark Index", "resolved": "^NSEI"},
+    "NIFTY50": {"name": "NIFTY 50", "exchange": "NSE", "sector": "Benchmark Index", "resolved": "^NSEI"},
+    "BANKNIFTY": {"name": "NIFTY Bank", "exchange": "NSE", "sector": "Banking Index", "resolved": "^NSEBANK"},
+    "SENSEX": {"name": "S&P BSE SENSEX", "exchange": "BSE", "sector": "Benchmark Index", "resolved": "^BSESN"},
+    "BTC-USD": {"name": "Bitcoin USD", "exchange": "CRYPTO", "sector": "Digital Asset"},
+    "ETH-USD": {"name": "Ethereum USD", "exchange": "CRYPTO", "sector": "Digital Asset"},
+    "GC=F": {"name": "Gold Futures", "exchange": "COMEX", "sector": "Commodity"},
+    "SI=F": {"name": "Silver Futures", "exchange": "COMEX", "sector": "Commodity"},
+    "CL=F": {"name": "Crude Oil WTI", "exchange": "NYMEX", "sector": "Energy Commodity"},
+}
+
+
+NEGATIVE_SYMBOL_CACHE = set()
+VALID_SYMBOL_CACHE = {}
+
+
+def resolve_and_validate_symbol(query: str) -> tuple[bool, str, dict]:
     """
-    Resolves user query (e.g., 'zomato', 'tata motors', 'RELIANCE')
-    to official exchange symbol via alias map & full-text match.
+    Authoritative Instrument Master Resolution:
+    Validates user query against SQLite ticker universe, aliases, and known indices.
+    Returns: (is_valid: bool, resolved_symbol: str, metadata: dict)
+    If symbol is invalid or fabricated (e.g. ZZZINVALIDTEST), returns (False, query, {}).
     """
     init_db()
-    if not query:
-        return "RELIANCE.NS"
+    if not query or not query.strip():
+        return False, "", {}
 
     q_clean = query.strip().upper()
 
-    # Direct ticker check
-    if q_clean.endswith(".NS") or q_clean.endswith(".BO"):
-        return q_clean
+    if q_clean in NEGATIVE_SYMBOL_CACHE:
+        return False, q_clean, {}
+
+    if q_clean in VALID_SYMBOL_CACHE:
+        item = VALID_SYMBOL_CACHE[q_clean]
+        return True, item[0], item[1]
+
+    # 1. Check known global assets & market indices
+    if q_clean in KNOWN_GLOBAL_ASSETS:
+        item = KNOWN_GLOBAL_ASSETS[q_clean]
+        resolved = item.get("resolved", q_clean)
+        return True, resolved, {
+            "symbol": resolved,
+            "company_name": item["name"],
+            "exchange": item["exchange"],
+            "sector": item["sector"],
+            "isin": "",
+        }
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # 1. Check alias table
+    # 2. Check alias map
     cursor.execute("SELECT target_symbol FROM ticker_aliases WHERE alias = ?", (q_clean,))
-    res = cursor.fetchone()
-    if res:
+    alias_row = cursor.fetchone()
+    if alias_row:
+        target = alias_row["target_symbol"]
+        cursor.execute("SELECT symbol, company_name, exchange, isin, sector FROM tickers WHERE symbol = ?", (target,))
+        t_row = cursor.fetchone()
         conn.close()
-        return res["target_symbol"]
+        if t_row:
+            return True, t_row["symbol"], {
+                "symbol": t_row["symbol"],
+                "company_name": t_row["company_name"],
+                "exchange": t_row["exchange"],
+                "isin": t_row["isin"] or "",
+                "sector": t_row["sector"] or "Equity",
+            }
+        return True, target, {"symbol": target, "company_name": target, "exchange": "NSE", "isin": "", "sector": "Equity"}
 
-    # 2. Check exact symbol in tickers
-    sym_ns = f"{q_clean}.NS"
-    cursor.execute("SELECT symbol FROM tickers WHERE symbol = ?", (sym_ns,))
-    res = cursor.fetchone()
-    if res:
-        conn.close()
-        return res["symbol"]
+    # 3. Check exact symbol in tickers table (with and without exchange suffix)
+    candidates = []
+    if "." in q_clean:
+        candidates = [q_clean, q_clean.replace(".NS", ""), q_clean.replace(".BO", "")]
+    else:
+        candidates = [f"{q_clean}.NS", f"{q_clean}.BO", q_clean]
 
-    # 3. Full-text search on company_name
+    for cand in candidates:
+        cursor.execute("SELECT symbol, company_name, exchange, isin, sector FROM tickers WHERE symbol = ?", (cand,))
+        row = cursor.fetchone()
+        if row:
+            conn.close()
+            return True, row["symbol"], {
+                "symbol": row["symbol"],
+                "company_name": row["company_name"],
+                "exchange": row["exchange"],
+                "isin": row["isin"] or "",
+                "sector": row["sector"] or "Equity",
+            }
+
+    # 4. Check full text match in company_name
     cursor.execute("""
-        SELECT symbol FROM tickers
+        SELECT symbol, company_name, exchange, isin, sector FROM tickers
         WHERE UPPER(company_name) LIKE ? OR UPPER(symbol) LIKE ?
         LIMIT 1
     """, (f"%{q_clean}%", f"%{q_clean}%"))
-    res = cursor.fetchone()
+    row = cursor.fetchone()
     conn.close()
 
-    if res:
-        return res["symbol"]
+    if row:
+        return True, row["symbol"], {
+            "symbol": row["symbol"],
+            "company_name": row["company_name"],
+            "exchange": row["exchange"],
+            "isin": row["isin"] or "",
+            "sector": row["sector"] or "Equity",
+        }
 
-    # Fallback to appending .NS for Indian equities
-    return f"{q_clean}.NS"
+    # 5. Check yfinance fallback for global active equities not in local DB
+    # Fast check: must have valid price and history bars
+    try:
+        t = yf.Ticker(q_clean)
+        fi = t.fast_info
+        last_price = getattr(fi, "last_price", None)
+        if last_price and last_price > 0:
+            h = t.history(period="5d")
+            if not h.empty and len(h) >= 1:
+                res_meta = {
+                    "symbol": q_clean,
+                    "company_name": q_clean,
+                    "exchange": "GLOBAL",
+                    "isin": "",
+                    "sector": "International Asset",
+                }
+                VALID_SYMBOL_CACHE[q_clean] = (q_clean, res_meta)
+                return True, q_clean, res_meta
+    except Exception:
+        pass
+
+    # Symbol cannot be validated against any authoritative source
+    NEGATIVE_SYMBOL_CACHE.add(q_clean)
+    return False, q_clean, {}
+
+
+def resolve_symbol(query: str) -> str:
+    """
+    Resolves user query to official exchange symbol.
+    Returns resolved symbol if valid, or original symbol.
+    """
+    is_valid, resolved, _ = resolve_and_validate_symbol(query)
+    if is_valid:
+        return resolved
+    return query.strip().upper()
 
 
 def backfill_universe(max_symbols: int = 20, period: str = "2y"):
