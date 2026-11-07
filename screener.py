@@ -15,11 +15,12 @@ Supports states:
 """
 
 import time
-from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, wait
 from threading import Lock
 from market_guard import MarketError
-from stock_data import get_stock_data, safe
+import yfinance as yf
+
+from stock_data import _compute_technicals, safe, validate_bars
 
 SCREENER_CACHE = {"time": 0, "as_of": None, "data": None}
 SCAN_WORKERS = ThreadPoolExecutor(max_workers=8)
@@ -32,6 +33,31 @@ SCREENER_CANDIDATES = [
     "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS", "ITC.NS", "NTPC.NS",
     "BAJFINANCE.NS", "ADANIENT.NS", "ADANIPOWER.NS", "DLF.NS", "BEL.NS"
 ]
+
+def _load_scan_data(symbol):
+    """Fetch only the daily OHLCV needed by the screener."""
+    bars = validate_bars(yf.Ticker(symbol).history(
+        period="1y", interval="1d", auto_adjust=False, timeout=3,
+    ), min_bars=2).sort_index()
+    if bars.empty:
+        return None
+
+    tech = _compute_technicals(bars)
+    if len(bars) < 230:
+        tech["week_52_high"] = None
+    price = float(bars["Close"].iloc[-1])
+    previous = float(bars["Close"].iloc[-2])
+    volume = bars.get("Volume")
+    average_volume = volume.iloc[-21:-1].mean() if volume is not None and len(volume) >= 21 else None
+    return {
+        **tech,
+        "current_price": price,
+        "change_pct": (price / previous - 1) * 100,
+        "volume": volume.iloc[-1] if volume is not None else None,
+        "avg_volume": average_volume,
+        "observed_at": bars.index[-1].date().isoformat(),
+    }
+
 
 def scan_stocks(strategy: str = "ALL", timeout: float = 8.0) -> dict:
     """
@@ -50,7 +76,7 @@ def scan_stocks(strategy: str = "ALL", timeout: float = 8.0) -> dict:
             "status": "success",
             "state": "ready" if rows else "empty",
             "as_of": snapshot["as_of"],
-            "source": "Market data snapshot (cached)",
+            "source": "Yahoo Finance daily bars (cached)",
             "is_stale": False,
             "data": rows,
             "total": len(rows),
@@ -58,7 +84,7 @@ def scan_stocks(strategy: str = "ALL", timeout: float = 8.0) -> dict:
 
     def _analyze_one(sym):
         try:
-            d = get_stock_data(sym, use_cache=True)
+            d = _load_scan_data(sym)
             if not d or not d.get("current_price"):
                 return None
 
@@ -93,7 +119,8 @@ def scan_stocks(strategy: str = "ALL", timeout: float = 8.0) -> dict:
                 "vol_ratio": vol_ratio,
                 "dist_to_52w_high": dist_to_52w,
                 "tags": tags,
-                "sector": d.get("sector", "Diversified")
+                "sector": d.get("sector", "—"),
+                "observed_at": d.get("observed_at")
             }
         except Exception:
             return None
@@ -109,9 +136,10 @@ def scan_stocks(strategy: str = "ALL", timeout: float = 8.0) -> dict:
     items = [row for future in futures if future in done and (row := future.result()) is not None]
     timed_out = bool(pending)
 
-    # Timestamp snapshot assembly, rather than claiming an exchange tick time.
-    now_iso = datetime.now(timezone.utc).isoformat()
     if items:
+        # Use the oldest included observation so a mixed-session scan cannot look newer.
+        dates = [item["observed_at"] for item in items if item["observed_at"]]
+        now_iso = min(dates) if dates else None
         results_by_strat = {
             "ALL": items,
             "52W_HIGH": [x for x in items if "52W_HIGH" in x["tags"]],
@@ -131,7 +159,7 @@ def scan_stocks(strategy: str = "ALL", timeout: float = 8.0) -> dict:
             "status": "success",
             "state": "stale" if len(items) < len(SCREENER_CANDIDATES) else ("ready" if rows else "empty"),
             "as_of": now_iso,
-            "source": "Market data snapshot",
+            "source": "Yahoo Finance daily bars",
             "is_stale": len(items) < len(SCREENER_CANDIDATES),
             "message": f"Only {len(items)} of {len(SCREENER_CANDIDATES)} instruments returned data." if len(items) < len(SCREENER_CANDIDATES) else None,
             "data": rows,
@@ -152,7 +180,7 @@ def scan_stocks(strategy: str = "ALL", timeout: float = 8.0) -> dict:
             "state": "stale",
             "is_stale": True,
             "as_of": snapshot["as_of"],
-            "source": "Market data snapshot (stale)",
+            "source": "Yahoo Finance daily bars (stale)",
             "message": "Upstream feed latency high. Displaying last successful snapshot.",
             "data": rows,
             "total": len(rows),
