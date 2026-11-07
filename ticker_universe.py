@@ -24,6 +24,7 @@ HEADERS = {
 
 # Initial seed tickers for immediate bootstrap
 DEFAULT_BOOTSTRAP_TICKERS = [
+    ("MRF.NS", "MRF Limited", "NSE", "INE883A01011", "Consumer Cyclical"),
     ("RELIANCE.NS", "Reliance Industries Limited", "NSE", "INE002A01018", "Energy"),
     ("TCS.NS", "Tata Consultancy Services Limited", "NSE", "INE467B01029", "Technology"),
     ("HDFCBANK.NS", "HDFC Bank Limited", "NSE", "INE040A01034", "Financials"),
@@ -179,6 +180,8 @@ def sync_universe():
             """, (clean_alias, symbol))
 
     conn.commit()
+    if added_count:
+        NEGATIVE_SYMBOL_CACHE.clear()
 
     # Get total count
     cursor.execute("SELECT COUNT(*) as total FROM tickers WHERE active = 1")

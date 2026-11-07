@@ -141,9 +141,9 @@ def _resolve_company_name_to_symbol(query: str) -> str:
 
     # Layer 0: Check SQLite Ticker Universe (2,500+ NSE/BSE listed equities & aliases)
     try:
-        from ticker_universe import resolve_symbol
-        u_sym = resolve_symbol(clean)
-        if u_sym and u_sym.upper() != f"{clean.upper()}.NS":
+        from ticker_universe import resolve_and_validate_symbol
+        valid, u_sym, _ = resolve_and_validate_symbol(clean)
+        if valid:
             return u_sym
     except Exception:
         pass
@@ -324,8 +324,8 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         raise ValueError(f"UNKNOWN_SYMBOL: Symbol '{raw_input}' not found in authoritative instrument master or exchange registry.")
 
     now = time.time()
-    if use_cache and raw_input in DATA_CACHE:
-        cached_entry = DATA_CACHE[raw_input]
+    if use_cache and resolved_master in DATA_CACHE:
+        cached_entry = DATA_CACHE[resolved_master]
         if now - cached_entry["time"] < 60:
             return cached_entry["data"]
 
@@ -420,7 +420,7 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
             print(f"[Data] yfinance error for {sym}: {e}")
 
     # ── Secondary Source: NSE India API if Indian Stock ───────────────────────
-    nse_data = _fetch_nse_data(raw_input) if resolved_symbol.endswith(".NS") or not "." in resolved_symbol else {}
+    nse_data = _fetch_nse_data(resolved_symbol.removesuffix(".NS")) if resolved_symbol.endswith(".NS") else {}
     nse_price_info = nse_data.get("priceInfo", {})
     nse_meta = nse_data.get("metadata", {})
     nse_industry_info = nse_data.get("industryInfo", {})
@@ -460,7 +460,12 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
 
     quote_id = f"Q_{raw_input}_{int(time.time() * 1000)}"
     as_of = datetime.now(timezone.utc).isoformat()
-    quote_source = "NSE / Yahoo Live Feed"
+    if safe(nse_price_info.get("lastPrice")) > 0:
+        quote_source = "NSE quote"
+    elif any(safe(value) > 0 for value in (info.get("currentPrice"), info.get("regularMarketPrice"), fast_info.get("last_price"))):
+        quote_source = "Yahoo Finance quote"
+    else:
+        quote_source = "Yahoo Finance historical close"
 
     prev_close = (
         safe(nse_price_info.get("previousClose"))
@@ -613,7 +618,7 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         "status": "LIVE",
     }
 
-    DATA_CACHE[raw_input] = {"time": now, "data": data}
+    DATA_CACHE[resolved_master] = {"time": time.time(), "data": data}
     return data
 
 def _fetch_single_top_quote(ticker: str, name: str) -> dict:
