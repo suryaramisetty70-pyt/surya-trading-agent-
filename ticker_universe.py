@@ -9,6 +9,9 @@ import os
 import sqlite3
 import io
 import time
+import math
+import re
+from threading import Lock
 import requests
 import pandas as pd
 import yfinance as yf
@@ -24,6 +27,7 @@ HEADERS = {
 
 # Initial seed tickers for immediate bootstrap
 DEFAULT_BOOTSTRAP_TICKERS = [
+    ("MRF.NS", "MRF Limited", "NSE", "INE883A01011", "Consumer Cyclical"),
     ("RELIANCE.NS", "Reliance Industries Limited", "NSE", "INE002A01018", "Energy"),
     ("TCS.NS", "Tata Consultancy Services Limited", "NSE", "INE467B01029", "Technology"),
     ("HDFCBANK.NS", "HDFC Bank Limited", "NSE", "INE040A01034", "Financials"),
@@ -55,7 +59,6 @@ KNOWN_ALIASES = {
     "ICICIBANK": "ICICIBANK.NS",
     "SBI": "SBIN.NS",
     "SBIN": "SBIN.NS",
-    "TATA MOTORS": "TATAPOWER.NS",
     "TATASTEEL": "TATASTEEL.NS",
     "SWIGGY": "SWIGGY.NS",
 }
@@ -93,6 +96,8 @@ def init_db():
         )
     """)
 
+    cursor.execute("DELETE FROM ticker_aliases WHERE alias = ? AND target_symbol = ?", ("TATA MOTORS", "TATAPOWER.NS"))
+
     # Seed initial bootstrap tickers
     now = datetime.now(timezone.utc).isoformat()
     for symbol, name, exch, isin, sector in DEFAULT_BOOTSTRAP_TICKERS:
@@ -114,7 +119,7 @@ def init_db():
 def fetch_nse_master_csv():
     """Downloads public NSE Equity Master CSV."""
     try:
-        resp = requests.get(NSE_EQUITY_CSV_URL, headers=HEADERS, timeout=15)
+        resp = requests.get(NSE_EQUITY_CSV_URL, headers=HEADERS, timeout=(2, 3))
         if resp.status_code == 200:
             df = pd.read_csv(io.StringIO(resp.text))
             return df
@@ -128,11 +133,16 @@ def sync_universe():
     Fetches official NSE master list, diffs against existing universe,
     auto-adds new IPOs/relistings, and updates aliases.
     """
+    df = fetch_nse_master_csv()
+    if df is None or df.empty:
+        raise ValueError("NSE instrument master is temporarily unavailable.")
+    df.columns = df.columns.str.strip().str.upper()
+    if not {"SYMBOL", "NAME OF COMPANY", "ISIN NUMBER"}.issubset(df.columns):
+        raise ValueError("NSE instrument master response is invalid.")
+
     init_db()
     conn = get_db_connection()
     cursor = conn.cursor()
-
-    df = fetch_nse_master_csv()
     added_count = 0
     updated_count = 0
 
@@ -212,124 +222,81 @@ KNOWN_GLOBAL_ASSETS = {
 }
 
 
-NEGATIVE_SYMBOL_CACHE = set()
-VALID_SYMBOL_CACHE = {}
+MASTER_REFRESH_LOCK = Lock()
+MASTER_REFRESH_AFTER = 0.0
+
+
+def _refresh_master_if_due():
+    global MASTER_REFRESH_AFTER
+    with MASTER_REFRESH_LOCK:
+        now = time.monotonic()
+        if now < MASTER_REFRESH_AFTER:
+            return
+        try:
+            sync_universe()
+        except (ValueError, sqlite3.Error):
+            MASTER_REFRESH_AFTER = now + 60
+        else:
+            MASTER_REFRESH_AFTER = now + 3600
+
+
+def _lookup_local(query):
+    candidates = [query] if "." in query else [f"{query}.NS", f"{query}.BO", query]
+    conn = get_db_connection()
+    try:
+        for candidate in candidates:
+            row = conn.execute(
+                "SELECT symbol, company_name, exchange, isin, sector FROM tickers WHERE symbol = ? AND active = 1",
+                (candidate,),
+            ).fetchone()
+            if row:
+                return dict(row)
+        rows = conn.execute(
+            """SELECT t.symbol, t.company_name, t.exchange, t.isin, t.sector
+            FROM tickers t LEFT JOIN ticker_aliases a ON a.target_symbol = t.symbol
+            WHERE t.active = 1 AND (a.alias = ? OR UPPER(t.company_name) = ?)
+            GROUP BY t.symbol LIMIT 2""",
+            (query, query),
+        ).fetchall()
+        return dict(rows[0]) if len(rows) == 1 else None
+    finally:
+        conn.close()
 
 
 def resolve_and_validate_symbol(query: str) -> tuple[bool, str, dict]:
-    """
-    Authoritative Instrument Master Resolution:
-    Validates user query against SQLite ticker universe, aliases, and known indices.
-    Returns: (is_valid: bool, resolved_symbol: str, metadata: dict)
-    If symbol is invalid or fabricated (e.g. ZZZINVALIDTEST), returns (False, query, {}).
-    """
-    init_db()
-    if not query or not query.strip():
-        return False, "", {}
-
-    q_clean = query.strip().upper()
-
-    if q_clean in NEGATIVE_SYMBOL_CACHE:
+    """Resolve exact instruments locally, then refresh the exchange master on a miss."""
+    q_clean = (query or "").strip().upper()
+    if not q_clean or len(q_clean) > 80:
         return False, q_clean, {}
-
-    if q_clean in VALID_SYMBOL_CACHE:
-        item = VALID_SYMBOL_CACHE[q_clean]
-        return True, item[0], item[1]
-
-    # 1. Check known global assets & market indices
     if q_clean in KNOWN_GLOBAL_ASSETS:
         item = KNOWN_GLOBAL_ASSETS[q_clean]
         resolved = item.get("resolved", q_clean)
         return True, resolved, {
-            "symbol": resolved,
-            "company_name": item["name"],
-            "exchange": item["exchange"],
-            "sector": item["sector"],
-            "isin": "",
+            "symbol": resolved, "company_name": item["name"], "exchange": item["exchange"],
+            "sector": item["sector"], "isin": "",
         }
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # 2. Check alias map
-    cursor.execute("SELECT target_symbol FROM ticker_aliases WHERE alias = ?", (q_clean,))
-    alias_row = cursor.fetchone()
-    if alias_row:
-        target = alias_row["target_symbol"]
-        cursor.execute("SELECT symbol, company_name, exchange, isin, sector FROM tickers WHERE symbol = ?", (target,))
-        t_row = cursor.fetchone()
-        conn.close()
-        if t_row:
-            return True, t_row["symbol"], {
-                "symbol": t_row["symbol"],
-                "company_name": t_row["company_name"],
-                "exchange": t_row["exchange"],
-                "isin": t_row["isin"] or "",
-                "sector": t_row["sector"] or "Equity",
-            }
-        return True, target, {"symbol": target, "company_name": target, "exchange": "NSE", "isin": "", "sector": "Equity"}
-
-    # 3. Check exact symbol in tickers table (with and without exchange suffix)
-    candidates = []
-    if "." in q_clean:
-        candidates = [q_clean, q_clean.replace(".NS", ""), q_clean.replace(".BO", "")]
-    else:
-        candidates = [f"{q_clean}.NS", f"{q_clean}.BO", q_clean]
-
-    for cand in candidates:
-        cursor.execute("SELECT symbol, company_name, exchange, isin, sector FROM tickers WHERE symbol = ?", (cand,))
-        row = cursor.fetchone()
-        if row:
-            conn.close()
-            return True, row["symbol"], {
-                "symbol": row["symbol"],
-                "company_name": row["company_name"],
-                "exchange": row["exchange"],
-                "isin": row["isin"] or "",
-                "sector": row["sector"] or "Equity",
-            }
-
-    # 4. Check full text match in company_name
-    cursor.execute("""
-        SELECT symbol, company_name, exchange, isin, sector FROM tickers
-        WHERE UPPER(company_name) LIKE ? OR UPPER(symbol) LIKE ?
-        LIMIT 1
-    """, (f"%{q_clean}%", f"%{q_clean}%"))
-    row = cursor.fetchone()
-    conn.close()
-
+    init_db()
+    row = _lookup_local(q_clean)
+    if not row and not q_clean.endswith(".BO"):
+        _refresh_master_if_due()
+        row = _lookup_local(q_clean)
     if row:
-        return True, row["symbol"], {
-            "symbol": row["symbol"],
-            "company_name": row["company_name"],
-            "exchange": row["exchange"],
-            "isin": row["isin"] or "",
-            "sector": row["sector"] or "Equity",
-        }
+        return True, row["symbol"], row
 
-    # 5. Check yfinance fallback for global active equities not in local DB
-    # Fast check: must have valid price and history bars
-    try:
-        t = yf.Ticker(q_clean)
-        fi = t.fast_info
-        last_price = getattr(fi, "last_price", None)
-        if last_price and last_price > 0:
-            h = t.history(period="5d")
-            if not h.empty and len(h) >= 1:
-                res_meta = {
-                    "symbol": q_clean,
-                    "company_name": q_clean,
-                    "exchange": "GLOBAL",
-                    "isin": "",
-                    "sector": "International Asset",
+    # Exact provider symbols outside the NSE master may have verifiable data.
+    # Do not strip exchange suffixes or substitute a similarly named instrument.
+    if re.fullmatch(r"[A-Z0-9^][A-Z0-9.^&=_-]{0,31}", q_clean):
+        try:
+            bars = yf.Ticker(q_clean).history(period="5d", timeout=3, raise_errors=True)
+            if not bars.empty and any(math.isfinite(value) and value > 0 for value in bars["Close"].dropna()):
+                exchange = "BSE" if q_clean.endswith(".BO") else "NSE" if q_clean.endswith(".NS") else "GLOBAL"
+                return True, q_clean, {
+                    "symbol": q_clean, "company_name": q_clean, "exchange": exchange,
+                    "sector": "", "isin": "",
                 }
-                VALID_SYMBOL_CACHE[q_clean] = (q_clean, res_meta)
-                return True, q_clean, res_meta
-    except Exception:
-        pass
-
-    # Symbol cannot be validated against any authoritative source
-    NEGATIVE_SYMBOL_CACHE.add(q_clean)
+        except Exception:
+            pass
     return False, q_clean, {}
 
 

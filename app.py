@@ -5,6 +5,10 @@ Uses ONLY Groq API directly. NO CrewAI. NO Google. NO LiteLLM.
 
 import os
 import sys
+from dotenv import load_dotenv
+from market_guard import MarketError
+
+load_dotenv(override=False)
 
 # ── Set Groq key first, before ANY other imports ──────────────────────────────
 # Load from .env file — never hardcode keys in source code!
@@ -21,8 +25,6 @@ import math
 import json
 import numpy as np
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, Response
-from dotenv import load_dotenv
-load_dotenv(override=False)   # .env won't override what we already set above
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), 'frontend', 'dist')
@@ -49,10 +51,10 @@ def sanitize_for_json(obj):
         if math.isnan(obj) or math.isinf(obj):
             return None
         return float(obj)
-    if isinstance(obj, (int, np.integer)):
-        return int(obj)
     if isinstance(obj, (bool, np.bool_)):
         return bool(obj)
+    if isinstance(obj, (int, np.integer)):
+        return int(obj)
     if isinstance(obj, (str, bytes)):
         return obj if isinstance(obj, str) else obj.decode('utf-8', errors='replace')
     if isinstance(obj, dict):
@@ -165,6 +167,8 @@ def analyze_stock():
             'technical_report': result.get('technical_report', ''),
             'stock_data': result.get('stock_data', {}),
         })
+    except MarketError as exc:
+        return safe_jsonify({'status': 'error', 'error_code': exc.code, 'message': str(exc)}, status=exc.status)
     except ValueError as ve:
         err_msg = str(ve)
         if "UNKNOWN_SYMBOL" in err_msg:
@@ -192,6 +196,8 @@ def refresh_universe_route():
         from ticker_universe import sync_universe
         res = sync_universe()
         return safe_jsonify({'status': 'success', 'data': res})
+    except ValueError as exc:
+        return safe_jsonify({'status': 'error', 'error_code': 'MASTER_UNAVAILABLE', 'message': str(exc)}, status=503)
     except Exception as e:
         return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
