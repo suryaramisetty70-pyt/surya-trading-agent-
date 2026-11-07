@@ -553,12 +553,29 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
     if df.empty or len(df) < 20:
         return {
             "status": "error",
-            "error_code": "INSUFFICIENT_HISTORY",
-            "message": f"Symbol '{resolved_sym}' has insufficient validated trading bars (< 20 sessions) for statistical model estimation."
+            "error_code": "DATA_COVERAGE_ERROR",
+            "message": f"Symbol '{resolved_sym}' has insufficient validated trading bars (< 20 sessions) from market data provider."
         }
 
     # 3. Clean Quantitative Feature Computation
-    base_price = float(df["Close"].iloc[-1])
+    forecast_ref_close = float(df["Close"].iloc[-1])
+    forecast_ref_as_of = df.index[-1].strftime("%Y-%m-%d") if len(df) > 0 else ""
+
+    # Synchronize execution quote with authoritative stock header
+    live_price = forecast_ref_close
+    quote_id = f"Q_{raw_sym}_{int(now*1000)}"
+    quote_as_of = datetime.now(timezone.utc).isoformat()
+    try:
+        from stock_data import get_stock_data
+        stk_data = get_stock_data(raw_sym, use_cache=True)
+        if stk_data and stk_data.get("current_price") and math.isfinite(stk_data["current_price"]):
+            live_price = float(stk_data["current_price"])
+            quote_id = stk_data.get("quote_id", quote_id)
+            quote_as_of = stk_data.get("as_of", quote_as_of)
+    except Exception:
+        pass
+
+    base_price = live_price
     ret_1d = float(df["Close"].pct_change().iloc[-1])
     ret_5d = float(df["Close"].pct_change(5).iloc[-1]) if len(df) >= 6 else 0.01
     ret_20d = float(df["Close"].pct_change(20).iloc[-1]) if len(df) >= 21 else 0.03
@@ -815,11 +832,17 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
             "lower": round(proj_lower, 2)
         })
 
+    forecast_id = f"FC_{raw_sym}_{int(now*1000)}"
     raw_prediction = {
         "status": "success",
         "symbol": resolved_sym.replace(".NS", "").replace(".BO", ""),
         "full_symbol": resolved_sym,
         "current_price": round(base_price, 2),
+        "quote_id": quote_id,
+        "as_of": quote_as_of,
+        "forecast_id": forecast_id,
+        "forecast_reference_close": round(forecast_ref_close, 2),
+        "forecast_reference_as_of": forecast_ref_as_of,
         "direction": direction,
         "action": action,
         "win_probability": win_probability,

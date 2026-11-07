@@ -26,6 +26,11 @@ export type PredictionData = {
   symbol: string;
   full_symbol?: string;
   current_price: number;
+  quote_id?: string;
+  as_of?: string;
+  forecast_id?: string;
+  forecast_reference_close?: number;
+  forecast_reference_as_of?: string;
   direction: "BULLISH" | "BEARISH" | "NEUTRAL";
   action?: string;
   win_probability: number;
@@ -89,10 +94,16 @@ export type PredictionData = {
 export default function MLPredictionCard({
   prediction,
   loading = false,
+  currentQuotePrice,
+  quoteId,
+  asOf,
   onRetrain,
 }: {
   prediction: PredictionData | null;
   loading?: boolean;
+  currentQuotePrice?: number;
+  quoteId?: string;
+  asOf?: string;
   onRetrain?: () => void;
 }) {
   const paper = usePaperTrading();
@@ -115,6 +126,10 @@ export default function MLPredictionCard({
 
   if (!prediction) return null;
 
+  const executionPrice = currentQuotePrice && currentQuotePrice > 0 && isFinite(currentQuotePrice)
+    ? currentQuotePrice
+    : prediction.current_price;
+
   const isBull = prediction.direction === "BULLISH";
   const isBear = prediction.direction === "BEARISH";
   const actionLabel = prediction.action || (isBull ? "BUY" : isBear ? "SELL" : "HOLD / NEUTRAL");
@@ -122,15 +137,15 @@ export default function MLPredictionCard({
   const dirBg = isBull ? "bg-bull/15 border-bull/30" : isBear ? "bg-bear/15 border-bear/30" : "bg-primary/15 border-primary/30";
 
   const handleExecuteTrade = () => {
-    if (!prediction.symbol || !prediction.current_price || prediction.current_price <= 0 || !isFinite(prediction.current_price)) {
+    if (!prediction.symbol || !executionPrice || executionPrice <= 0 || !isFinite(executionPrice)) {
       setTradeMsg({ text: "Trade execution disabled: Invalid or unverified instrument quote.", ok: false });
       return;
     }
     if (isBear) {
-      const res = paper.sellStock(prediction.symbol, prediction.current_price, 10);
+      const res = paper.sellStock(prediction.symbol, executionPrice, 10);
       setTradeMsg({ text: res.message, ok: res.success });
     } else {
-      const res = paper.buyStock(prediction.symbol, prediction.symbol, prediction.current_price, 10);
+      const res = paper.buyStock(prediction.symbol, prediction.symbol, executionPrice, 10);
       setTradeMsg({ text: res.message, ok: res.success });
     }
     setTimeout(() => setTradeMsg(null), 4000);
@@ -422,6 +437,20 @@ export default function MLPredictionCard({
           </div>
         </div>
 
+        {/* Quote Provenance & Reference Verification */}
+        <div className="flex flex-wrap items-center justify-between text-[0.62rem] text-muted-foreground pb-1 px-1">
+          <span>
+            Live Execution Quote: <strong className="text-foreground">₹{fmt(executionPrice, 2)}</strong>
+            {asOf && ` (${new Date(asOf).toLocaleTimeString()})`}
+          </span>
+          {prediction.forecast_reference_close && (
+            <span>
+              Model Reference Close: <strong className="text-foreground">₹{fmt(prediction.forecast_reference_close, 2)}</strong>
+              {prediction.forecast_reference_as_of && ` (${prediction.forecast_reference_as_of})`}
+            </span>
+          )}
+        </div>
+
         {/* 1-Click Action Button */}
         <div className="pt-1">
           <button
@@ -431,7 +460,7 @@ export default function MLPredictionCard({
             }`}
           >
             <ArrowUpRight className="size-4" />
-            Execute ML {actionLabel} Setup in Paper Wallet (10 Shares @ ₹{fmt(prediction.current_price, 2)})
+            Execute ML {actionLabel} Setup in Paper Wallet (10 Shares @ ₹{fmt(executionPrice, 2)})
           </button>
 
           {tradeMsg && (

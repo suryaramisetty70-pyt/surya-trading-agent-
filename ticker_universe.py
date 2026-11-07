@@ -12,7 +12,7 @@ import time
 import requests
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "ticker_universe.db")
 
@@ -94,7 +94,7 @@ def init_db():
     """)
 
     # Seed initial bootstrap tickers
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     for symbol, name, exch, isin, sector in DEFAULT_BOOTSTRAP_TICKERS:
         cursor.execute("""
             INSERT OR IGNORE INTO tickers (symbol, company_name, exchange, isin, sector, updated_at)
@@ -143,7 +143,7 @@ def sync_universe():
         name_col = "NAME OF COMPANY" if "NAME OF COMPANY" in df.columns else df.columns[1]
         isin_col = "ISIN NUMBER" if "ISIN NUMBER" in df.columns else None
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         for _, row in df.iterrows():
             raw_sym = str(row[symbol_col]).strip().upper()
@@ -190,7 +190,7 @@ def sync_universe():
         "added": added_count,
         "updated": updated_count,
         "total_active": total_active,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -344,6 +344,27 @@ def resolve_symbol(query: str) -> str:
     return query.strip().upper()
 
 
+def lookup_instrument(exchange: str, symbol: str):
+    """
+    Lookup adapter for market_guard.resolve_instrument.
+    Returns Instrument instance if symbol exists in authoritative master, else None.
+    """
+    from market_guard import Instrument
+    is_valid, resolved, meta = resolve_and_validate_symbol(symbol)
+    if not is_valid:
+        return None
+    ex = meta.get("exchange") or (exchange.strip().upper() if exchange else "NSE")
+    canonical_sym = resolved.replace(".NS", "").replace(".BO", "").strip().upper()
+    inst_id = f"{ex}:{resolved}"
+    return Instrument(
+        instrument_id=inst_id,
+        exchange=ex,
+        symbol=canonical_sym,
+        currency="INR",
+        active=True
+    )
+
+
 def backfill_universe(max_symbols: int = 20, period: str = "2y"):
     """
     Backfills 2 years of daily data for symbols marked backfilled = 0.
@@ -358,7 +379,7 @@ def backfill_universe(max_symbols: int = 20, period: str = "2y"):
     symbols_to_fill = [r["symbol"] for r in cursor.fetchall()]
 
     completed = 0
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     for sym in symbols_to_fill:
         try:

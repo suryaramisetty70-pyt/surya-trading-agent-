@@ -360,7 +360,13 @@ function StockPage() {
             </section>
 
             {/* Surya ML Predictive Intelligence Engine Card */}
-            <MLPredictionCard prediction={mlPrediction} loading={loadingPrediction} />
+            <MLPredictionCard
+              prediction={mlPrediction}
+              loading={loadingPrediction}
+              currentQuotePrice={price}
+              quoteId={liveData?.quote_id}
+              asOf={liveData?.as_of}
+            />
 
             {/* 1-Click Virtual Paper Trading Console (Inspired by OpenAlgo) */}
             <Panel title={`1-Click Virtual Paper Trading Console — ${quote.symbol}`}>
@@ -623,24 +629,49 @@ function AiStudioPanel({ symbol, name }: { symbol: string; name: string }) {
   const [lang, setLang] = useState("English");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<string | null>(null);
+  const [reportSource, setReportSource] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Clear report on symbol change to avoid stale carry-over
+  useEffect(() => {
+    setReport(null);
+    setErrorMsg(null);
+    setReportSource(null);
+    setLoading(false);
+  }, [symbol]);
 
   const runAnalysis = async () => {
     setLoading(true);
     setReport(null);
+    setErrorMsg(null);
+    setReportSource(null);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const customKey = localStorage.getItem("user_groq_api_key") || "";
+
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker: symbol, language: lang }),
+        signal: controller.signal,
+        body: JSON.stringify({ ticker: symbol, language: lang, api_key: customKey }),
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (data.status === "success") {
         setReport(data.master_report);
+        setReportSource(data.source || "ai");
+        setErrorMsg(null);
       } else {
-        setReport("Error generating report. Please check API connection.");
+        setErrorMsg(data.message || "Error generating report.");
       }
-    } catch (e) {
-      setReport("Error connecting to AI Server.");
+    } catch (e: any) {
+      if (e.name === "AbortError") {
+        setErrorMsg("AI Report request timed out. Provider latency exceeded deadline.");
+      } else {
+        setErrorMsg("Error connecting to AI Server. Please check network or API key.");
+      }
     } finally {
       setLoading(false);
     }
@@ -682,15 +713,39 @@ function AiStudioPanel({ symbol, name }: { symbol: string; name: string }) {
         <button
           onClick={runAnalysis}
           disabled={loading}
-          className="rounded bg-primary px-4 py-1.5 text-xs font-bold tracking-wider text-primary-foreground uppercase hover:brightness-110 disabled:opacity-50"
+          className="rounded bg-primary px-4 py-1.5 text-xs font-bold tracking-wider text-primary-foreground uppercase hover:brightness-110 disabled:opacity-50 cursor-pointer"
         >
           {loading ? "Generating Report..." : "⚡ Generate AI Report"}
         </button>
       </div>
 
+      {errorMsg && (
+        <div className="p-3 rounded-lg border border-bear/40 bg-bear/10 flex items-center justify-between text-xs text-bear">
+          <span>{errorMsg}</span>
+          <button
+            onClick={runAnalysis}
+            className="px-2.5 py-1 rounded bg-bear text-white font-bold text-[0.65rem] hover:brightness-110"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {report && (
         <div className="space-y-3">
-          <div className="max-h-80 overflow-y-auto rounded border border-border/80 bg-background/80 p-3 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+          <div className="flex items-center justify-between text-[0.65rem]">
+            <span className="font-mono text-muted-foreground">{symbol} Analysis</span>
+            {reportSource === "structured_fallback" ? (
+              <span className="px-2 py-0.5 rounded font-bold bg-chart-4/15 text-chart-4 border border-chart-4/30">
+                MAX MARKET Institutional Deterministic Engine (Structured Fallback)
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded font-bold bg-primary/15 text-primary border border-primary/30">
+                Groq LLM Engine Verified
+              </span>
+            )}
+          </div>
+          <div className="max-h-80 overflow-y-auto rounded border border-border/80 bg-background/80 p-3 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono text-[0.7rem]">
             {report}
           </div>
           <div className="flex gap-2">

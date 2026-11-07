@@ -120,12 +120,11 @@ def get_stock_data_route():
         return safe_jsonify({'status': 'success', 'data': data})
     except ValueError as ve:
         err_msg = str(ve)
-        status_code = 404 if "UNKNOWN_SYMBOL" in err_msg else 400
-        return safe_jsonify({
-            'status': 'error',
-            'error_code': 'UNKNOWN_SYMBOL' if status_code == 404 else 'INVALID_REQUEST',
-            'message': err_msg
-        }, status=status_code)
+        if "UNKNOWN_SYMBOL" in err_msg:
+            return safe_jsonify({'status': 'error', 'error_code': 'UNKNOWN_SYMBOL', 'message': err_msg}, status=404)
+        if "DATA_COVERAGE_ERROR" in err_msg or "INSUFFICIENT" in err_msg:
+            return safe_jsonify({'status': 'error', 'error_code': 'DATA_COVERAGE_ERROR', 'message': err_msg}, status=422)
+        return safe_jsonify({'status': 'error', 'error_code': 'INVALID_REQUEST', 'message': err_msg}, status=400)
     except Exception as e:
         return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
@@ -145,29 +144,34 @@ def analyze_stock():
     payload = request.json or {}
     ticker = payload.get('ticker', 'RELIANCE').strip().upper()
     language = payload.get('language', 'English').strip()
-    model = payload.get('model', 'llama-3.3-70b-versatile').strip()
-    custom_key = payload.get('api_key', '').strip() or request.headers.get('X-AI-Key', '').strip() or request.headers.get('X-Groq-Key', '').strip()
-    api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
-
-    if not api_key or api_key == "PASTE_YOUR_KEY_HERE":
-        return safe_jsonify({
-            'status': 'error',
-            'message': 'Groq API key is not set! Please enter your API key in Settings.'
-        }, status=400)
+    model = payload.get('model', 'openai/gpt-oss-120b').strip()
+    if 'api_key' in payload:
+        api_key = str(payload.get('api_key') or '').strip()
+    else:
+        custom_header = request.headers.get('X-AI-Key', '').strip() or request.headers.get('X-Groq-Key', '').strip()
+        api_key = custom_header or os.environ.get("GROQ_API_KEY", "")
 
     try:
         from ai_engine import analyze_stock as run_analysis
         result = run_analysis(ticker=ticker, language=language, api_key=api_key, model=model)
         return safe_jsonify({
             'status': 'success',
+            'source': result.get('source', 'ai'),
             'ticker': result['ticker'],
             'language': result['language'],
             'master_report': result['master_report'],
-            'dashboard_report': result['dashboard_report'],
-            'fundamental_report': result['fundamental_report'],
-            'technical_report': result['technical_report'],
-            'stock_data': result['stock_data'],
+            'dashboard_report': result.get('dashboard_report', ''),
+            'fundamental_report': result.get('fundamental_report', ''),
+            'technical_report': result.get('technical_report', ''),
+            'stock_data': result.get('stock_data', {}),
         })
+    except ValueError as ve:
+        err_msg = str(ve)
+        if "UNKNOWN_SYMBOL" in err_msg:
+            return safe_jsonify({'status': 'error', 'error_code': 'UNKNOWN_SYMBOL', 'message': err_msg}, status=404)
+        if "DATA_COVERAGE_ERROR" in err_msg or "INSUFFICIENT" in err_msg:
+            return safe_jsonify({'status': 'error', 'error_code': 'DATA_COVERAGE_ERROR', 'message': err_msg}, status=422)
+        return safe_jsonify({'status': 'error', 'error_code': 'INVALID_REQUEST', 'message': err_msg}, status=400)
     except Exception as e:
         return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 
@@ -208,15 +212,28 @@ def predict_stock_route():
         pred = predict_stock(ticker, custom_api_key=custom_key)
         if pred.get("status") == "error":
             err_code = pred.get("error_code", "ERROR")
-            status_code = 404 if err_code == "UNKNOWN_SYMBOL" else 400
+            if err_code == "UNKNOWN_SYMBOL":
+                status_code = 404
+            elif err_code in ["DATA_COVERAGE_ERROR", "INSUFFICIENT_HISTORY", "INSUFFICIENT_DATA"]:
+                status_code = 422
+            else:
+                status_code = 400
             return safe_jsonify(pred, status=status_code)
         return safe_jsonify({'status': 'success', 'data': pred})
     except ValueError as ve:
         err_msg = str(ve)
-        status_code = 404 if "UNKNOWN_SYMBOL" in err_msg else 400
+        if "UNKNOWN_SYMBOL" in err_msg:
+            status_code = 404
+            err_code = "UNKNOWN_SYMBOL"
+        elif "DATA_COVERAGE_ERROR" in err_msg or "INSUFFICIENT" in err_msg:
+            status_code = 422
+            err_code = "DATA_COVERAGE_ERROR"
+        else:
+            status_code = 400
+            err_code = "INVALID_REQUEST"
         return safe_jsonify({
             'status': 'error',
-            'error_code': 'UNKNOWN_SYMBOL' if status_code == 404 else 'INVALID_REQUEST',
+            'error_code': err_code,
             'message': err_msg
         }, status=status_code)
     except Exception as e:
@@ -239,10 +256,19 @@ def get_screener_route():
     strategy = request.args.get('strategy', 'ALL').strip().upper()
     try:
         from screener import scan_stocks
+        from market_guard import MarketError
         results = scan_stocks(strategy)
-        return safe_jsonify({'status': 'success', 'data': results})
-    except Exception as e:
-        return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
+        return safe_jsonify(results)
+    except Exception as me:
+        from market_guard import MarketError
+        if isinstance(me, MarketError):
+            return safe_jsonify({
+                'status': 'error',
+                'state': 'timeout' if me.code == "SCREENER_TIMEOUT" else 'unavailable',
+                'error_code': me.code,
+                'message': str(me)
+            }, status=me.status)
+        return safe_jsonify({'status': 'error', 'state': 'error', 'message': str(me)}, status=500)
 
 
 @app.route('/api/webhook/order', methods=['POST'])
@@ -326,8 +352,11 @@ def rollback_model_route():
 @app.route('/api/ai-status', methods=['GET', 'POST'])
 def ai_status_route():
     payload = request.json or {} if request.is_json else {}
-    custom_key = payload.get('api_key', '').strip() or request.headers.get('X-AI-Key', '').strip() or request.headers.get('X-Groq-Key', '').strip()
-    api_key = custom_key or os.environ.get("GROQ_API_KEY", "")
+    if 'api_key' in payload:
+        api_key = str(payload.get('api_key') or '').strip()
+    else:
+        custom_header = request.headers.get('X-AI-Key', '').strip() or request.headers.get('X-Groq-Key', '').strip()
+        api_key = custom_header or os.environ.get("GROQ_API_KEY", "")
 
     if not api_key:
         return safe_jsonify({'status': 'error', 'online': False, 'message': 'No API Key configured'})

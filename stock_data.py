@@ -14,7 +14,7 @@ import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 
 # In-memory cache for sub-second speeds (60s TTL)
 DATA_CACHE = {}
@@ -456,7 +456,11 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     )
 
     if current_price <= 0 or not math.isfinite(current_price):
-        raise ValueError(f"UNKNOWN_SYMBOL: No active market quote or trading bars available for '{raw_input}'.")
+        raise ValueError(f"DATA_COVERAGE_ERROR: No active market quote or trading bars available for valid instrument '{raw_input}' from configured data provider.")
+
+    quote_id = f"Q_{raw_input}_{int(time.time() * 1000)}"
+    as_of = datetime.now(timezone.utc).isoformat()
+    quote_source = "NSE / Yahoo Live Feed"
 
     prev_close = (
         safe(nse_price_info.get("previousClose"))
@@ -602,6 +606,11 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
         "chart_series": chart_series,
         "raw_output": raw_display,
         "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
+        "quote_id": quote_id,
+        "observed_at": as_of,
+        "as_of": as_of,
+        "source": quote_source,
+        "status": "LIVE",
     }
 
     DATA_CACHE[raw_input] = {"time": now, "data": data}

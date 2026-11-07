@@ -371,35 +371,46 @@ function GalaxyTerminalView() {
 function MarketsView() {
   const [strategy, setStrategy] = useState("ALL");
   const [loading, setLoading] = useState(false);
+  const [screenerState, setScreenerState] = useState<"ready" | "empty" | "stale" | "unconfigured" | "timeout" | "error">("ready");
   const [screenerError, setScreenerError] = useState<string | null>(null);
   const [screenerData, setScreenerData] = useState<any[]>([]);
+  const [asOf, setAsOf] = useState<string | null>(null);
+  const [feedSource, setFeedSource] = useState<string>("NSE Live Feed");
 
   const fetchScreener = (strat: string) => {
     setLoading(true);
     setScreenerError(null);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
     fetch(`/api/screener?strategy=${strat}`, { signal: controller.signal })
       .then((r) => {
         clearTimeout(timeout);
-        if (!r.ok) throw new Error(`Feed error (HTTP ${r.status})`);
-        return r.json();
+        return r.json().then((json) => ({ ok: r.ok, status: r.status, json }));
       })
-      .then((res) => {
-        if (res.status === "success" && Array.isArray(res.data)) {
-          setScreenerData(res.data);
-          setScreenerError(null);
+      .then(({ ok, status, json }) => {
+        if (json.status === "success") {
+          const rows = Array.isArray(json.data) ? json.data : [];
+          setScreenerData(rows);
+          setScreenerState(json.state || (rows.length > 0 ? "ready" : "empty"));
+          setAsOf(json.as_of || null);
+          setFeedSource(json.source || "NSE Live Feed");
+          setScreenerError(json.state === "stale" ? json.message : null);
         } else {
-          setScreenerError(res.message || "Feed unavailable.");
+          setScreenerData([]);
+          setScreenerState(json.state || (status === 504 ? "timeout" : "error"));
+          setScreenerError(json.message || "Market feed currently unavailable.");
         }
       })
       .catch((e) => {
         console.error("Error fetching screener:", e);
+        setScreenerData([]);
         if (e.name === "AbortError") {
-          setScreenerError("Screener request timed out. Feed retry is available.");
+          setScreenerState("timeout");
+          setScreenerError("Screener request timed out. Upstream provider latency exceeded deadline.");
         } else {
-          setScreenerError("Unable to load screener dataset. Feed retry is available.");
+          setScreenerState("error");
+          setScreenerError("Unable to load screener dataset. Check connection and retry.");
         }
       })
       .finally(() => setLoading(false));
@@ -446,10 +457,35 @@ function MarketsView() {
         </button>
       </div>
 
+      {screenerState === "stale" && asOf && (
+        <div className="p-3 rounded-lg border border-chart-4/40 bg-chart-4/10 flex items-center justify-between text-xs text-foreground">
+          <div className="flex items-center gap-2">
+            <span className="size-2 rounded-full bg-chart-4 animate-pulse" />
+            <span>
+              <strong>Stale Market Snapshot:</strong> Showing cached data as of{" "}
+              {new Date(asOf).toLocaleTimeString()} ({feedSource}). Live feed delayed.
+            </span>
+          </div>
+          <button
+            onClick={() => fetchScreener(strategy)}
+            className="text-[0.7rem] font-bold underline hover:text-primary"
+          >
+            Retry Live Feed
+          </button>
+        </div>
+      )}
+
       <Panel title={`Institutional Setup Results (${screenerData.length} Equities)`}>
-        {screenerError ? (
+        {loading ? (
+          <div className="py-12 text-center space-y-2">
+            <div className="size-5 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-xs text-muted-foreground animate-pulse">Scanning exchange universe...</p>
+          </div>
+        ) : screenerState === "timeout" || screenerState === "error" || (screenerError && screenerData.length === 0) ? (
           <div className="py-8 text-center space-y-3">
-            <p className="text-xs text-bear font-semibold">{screenerError}</p>
+            <p className="text-xs text-bear font-semibold">
+              {screenerState === "timeout" ? "⏱️ Request Timed Out: Market data feed did not respond in time." : screenerError}
+            </p>
             <button
               onClick={() => fetchScreener(strategy)}
               className="px-4 py-1.5 bg-primary text-primary-foreground rounded text-xs font-bold hover:brightness-110"
@@ -457,16 +493,19 @@ function MarketsView() {
               Retry Connection
             </button>
           </div>
-        ) : screenerData.length === 0 && !loading ? (
+        ) : screenerState === "empty" || screenerData.length === 0 ? (
           <div className="py-8 text-center space-y-2">
             <p className="text-xs text-muted-foreground">
-              No stocks currently qualify under {strategy} criteria. Check other strategies or refresh.
+              Zero securities currently qualify under <strong>{strategy}</strong> criteria. Check other strategies or refresh.
             </p>
             <button
-              onClick={() => fetchScreener(strategy)}
+              onClick={() => {
+                setStrategy("ALL");
+                fetchScreener("ALL");
+              }}
               className="text-xs text-primary underline font-medium hover:brightness-125"
             >
-              Click here to re-scan
+              Show All Equities
             </button>
           </div>
         ) : (
@@ -1069,27 +1108,73 @@ function AiStudioView() {
   const [model, setModel] = useState("openai/gpt-oss-120b");
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<string | null>(null);
+  const [reportSource, setReportSource] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const reqIdRef = useRef<number>(0);
 
-  const runAiAnalysis = async () => {
+  const runAiAnalysis = async (targetSymbol?: string) => {
+    const activeSymbol = (targetSymbol || symbol).trim().toUpperCase();
+    if (!activeSymbol) return;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const currentReqId = ++reqIdRef.current;
     setLoading(true);
     setReport(null);
+    setErrorMsg(null);
+    setReportSource(null);
+
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 12000);
+
     const customKey = localStorage.getItem("user_groq_api_key") || "";
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker: symbol, language: lang, model, api_key: customKey }),
+        signal: controller.signal,
+        body: JSON.stringify({ ticker: activeSymbol, language: lang, model, api_key: customKey }),
       });
+      clearTimeout(timeout);
       const data = await res.json();
+      if (reqIdRef.current !== currentReqId) return;
+
       if (data.status === "success") {
         setReport(data.master_report);
+        setReportSource(data.source || "ai");
+        setErrorMsg(null);
       } else {
-        setReport(`AI Error: ${data.message || "Could not generate analysis."}`);
+        setReport(null);
+        setErrorMsg(data.message || `AI Analysis unavailable for ${activeSymbol}.`);
       }
-    } catch (e) {
-      setReport("Network error connecting to AI Server.");
+    } catch (e: any) {
+      if (reqIdRef.current !== currentReqId) return;
+      if (e.name === "AbortError") {
+        setErrorMsg(`Request timed out for ${activeSymbol}. Provider latency exceeded deadline.`);
+      } else {
+        setErrorMsg(`Network or provider failure for ${activeSymbol}.`);
+      }
     } finally {
-      setLoading(false);
+      if (reqIdRef.current === currentReqId) {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleSymbolChange = (newVal: string) => {
+    const clean = newVal.toUpperCase();
+    setSymbol(clean);
+    setReport(null);
+    setErrorMsg(null);
+    setReportSource(null);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -1121,7 +1206,7 @@ function AiStudioView() {
               <label className="text-muted-foreground uppercase text-[0.6rem] font-bold">Select Symbol</label>
               <input
                 value={symbol}
-                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                onChange={(e) => handleSymbolChange(e.target.value)}
                 className="w-full rounded border border-border bg-secondary p-2 mt-1 uppercase font-bold text-primary"
                 placeholder="e.g. RELIANCE, TCS, ZOMATO"
               />
@@ -1153,7 +1238,7 @@ function AiStudioView() {
             </div>
             <div className="flex items-end">
               <button
-                onClick={runAiAnalysis}
+                onClick={() => runAiAnalysis()}
                 disabled={loading}
                 className="w-full py-2 bg-primary text-primary-foreground font-bold rounded uppercase tracking-wider hover:brightness-110 disabled:opacity-50"
               >
@@ -1162,8 +1247,51 @@ function AiStudioView() {
             </div>
           </div>
 
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            <span className="text-muted-foreground text-[0.68rem] self-center mr-1">Quick Select:</span>
+            {["TCS", "RELIANCE", "INFY", "HDFCBANK", "ICICIBANK", "MRF"].map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  handleSymbolChange(s);
+                  runAiAnalysis(s);
+                }}
+                className="px-2 py-0.5 rounded bg-secondary hover:bg-secondary/70 text-[0.68rem] font-semibold"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {errorMsg && (
+            <div className="p-4 rounded-xl border border-bear/40 bg-bear/10 flex items-center justify-between gap-3">
+              <div>
+                <p className="font-bold text-xs text-bear">AI Report Unavailable</p>
+                <p className="text-xs text-foreground/90 mt-0.5">{errorMsg}</p>
+              </div>
+              <button
+                onClick={() => runAiAnalysis()}
+                className="px-3 py-1 bg-bear text-white rounded text-xs font-bold shrink-0 hover:brightness-110"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {report && (
             <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[0.68rem] font-mono text-muted-foreground">Symbol: {symbol}</span>
+                {reportSource === "structured_fallback" ? (
+                  <span className="px-2 py-0.5 rounded text-[0.65rem] font-bold bg-chart-4/15 text-chart-4 border border-chart-4/30">
+                    MAX MARKET Institutional Deterministic Engine (Structured Fallback)
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[0.65rem] font-bold bg-primary/15 text-primary border border-primary/30">
+                    Groq LLM Engine Verified
+                  </span>
+                )}
+              </div>
               <div className="max-h-96 overflow-y-auto rounded border border-border/80 bg-background/90 p-4 leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono text-[0.72rem]">
                 {report}
               </div>
