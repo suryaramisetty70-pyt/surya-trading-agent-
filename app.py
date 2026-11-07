@@ -147,11 +147,12 @@ def analyze_stock():
     ticker = payload.get('ticker', 'RELIANCE').strip().upper()
     language = payload.get('language', 'English').strip()
     model = payload.get('model', 'openai/gpt-oss-120b').strip()
-    if 'api_key' in payload:
-        api_key = str(payload.get('api_key') or '').strip()
-    else:
-        custom_header = request.headers.get('X-AI-Key', '').strip() or request.headers.get('X-Groq-Key', '').strip()
-        api_key = custom_header or os.environ.get("GROQ_API_KEY", "")
+    api_key = (
+        str(payload.get('api_key') or '').strip()
+        or request.headers.get('X-AI-Key', '').strip()
+        or request.headers.get('X-Groq-Key', '').strip()
+        or os.environ.get("GROQ_API_KEY", "")
+    )
 
     try:
         from ai_engine import analyze_stock as run_analysis

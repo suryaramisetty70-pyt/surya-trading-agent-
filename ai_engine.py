@@ -41,7 +41,7 @@ LANGUAGE_INSTRUCTIONS = {
 def _call_groq(system: str, prompt: str, api_key: str, max_tokens: int = 2000, model: str = MODEL) -> str:
     """Direct Groq API call with automatic model mapping and resilient fallback."""
     target_model = MODEL_MAP.get(model, model) if model else MODEL
-    with Groq(api_key=api_key, timeout=4.0, max_retries=0) as client:
+    with Groq(api_key=api_key, timeout=5.0, max_retries=0) as client:
         response = client.chat.completions.create(
             model=target_model,
             messages=[
@@ -49,7 +49,10 @@ def _call_groq(system: str, prompt: str, api_key: str, max_tokens: int = 2000, m
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
+            **({"reasoning_effort": "low"} if target_model in {
+                "openai/gpt-oss-20b", "openai/gpt-oss-120b",
+            } else {}),
         )
     return response.choices[0].message.content or ""
 
@@ -99,7 +102,7 @@ def _agent_master_report(data: dict, language: str, api_key: str, model: str = M
     )
     prompt = f"""
 Summarize the quote, fundamentals, technical indicators and news for this instrument.
-State the main risks and which data is missing.
+In 2 to 4 short bullets, explain the main risks and any gaps in the data.
 
 Instrument: {data.get('company_name')} ({data.get('ticker')})
 Snapshot time: {data.get('as_of', 'Unavailable')}
@@ -114,7 +117,7 @@ Reported news:
 Provider-reported analyst consensus:
 {analyst_text}
 """
-    return _call_groq(system, prompt, api_key, max_tokens=1800, model=model)
+    return _call_groq(system, prompt, api_key, max_tokens=900, model=model)
 
 
 def generate_structured_fallback_report(ticker: str, data: dict, language: str = "English") -> str:
@@ -214,7 +217,7 @@ def _report_market_data(ticker: str, timeout: float) -> dict:
     return future.result()
 
 
-def analyze_stock(ticker: str, language: str = "English", api_key: str = "", model: str = MODEL, timeout: float = 7.0) -> dict:
+def analyze_stock(ticker: str, language: str = "English", api_key: str = "", model: str = MODEL, timeout: float = 10.0) -> dict:
     """Return a report from a bounded market snapshot and one optional model call."""
     deadline = time.monotonic() + timeout
     clean_sym = ticker.strip().upper()
