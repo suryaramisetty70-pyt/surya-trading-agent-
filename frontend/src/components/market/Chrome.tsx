@@ -169,7 +169,7 @@ export function TopBar() {
               <span className="absolute size-3.5 rounded-full bg-bull/40 [animation:pulse-ring_1.8s_ease-out_infinite]" />
             </span>
             <div className="leading-tight">
-              <p className="text-[0.6rem] font-bold tracking-widest text-bull">LIVE</p>
+              <p className="text-[0.6rem] font-bold tracking-widest text-bull">MARKET CLOCK</p>
               <p className="num text-[0.6rem] text-muted-foreground">{clock} IST</p>
             </div>
           </div>
@@ -482,7 +482,7 @@ export function TickerTape({ className }: { className?: string }) {
   return (
     <div className={cn("panel relative flex items-stretch overflow-hidden", className)}>
       <div className="flex shrink-0 items-center gap-2 border-r border-border px-4">
-        <span className="text-[0.62rem] font-bold tracking-[0.18em] text-primary uppercase">Live Market Ticker</span>
+        <span className="text-[0.62rem] font-bold tracking-[0.18em] text-primary uppercase">Sample Market Ticker</span>
       </div>
       <div className="overflow-hidden">
         <div className="animate-marquee flex w-max">
@@ -516,6 +516,7 @@ export function WatchlistPanel() {
   const quotes = useLiveQuotes().slice(0, 6);
   return (
     <div className="divide-y divide-border/70">
+      {!quotes.length && <p className="text-xs text-muted-foreground">No market quotes available yet.</p>}
       {quotes.map((q) => (
         <Link
           key={q.symbol}

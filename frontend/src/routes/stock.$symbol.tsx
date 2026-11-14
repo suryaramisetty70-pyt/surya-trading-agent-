@@ -2,13 +2,13 @@ import { fetchProviderJson } from "@/lib/provider-request";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { TopBar } from "@/components/market/Chrome";
-import { Delta, Gauge, LivePrice, Panel } from "@/components/market/primitives";
+import { Delta, LivePrice, Panel } from "@/components/market/primitives";
 import CandleChart from "@/components/market/CandleChart";
 import MLPredictionCard, { PredictionData } from "@/components/market/MLPredictionCard";
-import { BASE_QUOTES, findQuote, fmt } from "@/lib/market";
+import { findQuote, fmt, useLiveQuotes } from "@/lib/market";
 import { usePaperTrading } from "@/lib/paperTrading";
 import { useAIKeyManager } from "@/lib/userAccount";
-import { ShieldCheck, TrendingUp, Cpu, Award, CheckCircle2, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Cpu, ArrowUpRight, ArrowDownRight } from "lucide-react";
 
 export const Route = createFileRoute("/stock/$symbol")({
   loader: ({ params }) => {
@@ -32,11 +32,14 @@ export const Route = createFileRoute("/stock/$symbol")({
       ],
     };
   },
-  component: StockPage,
+  component: () => {
+    const { quote } = Route.useLoaderData();
+    return <StockPage key={quote.symbol} />;
+  },
 });
 
 const RANGES = ["1D", "5D", "1M", "3M", "6M", "1Y", "5Y", "MAX"] as const;
-const SIDE = ["Overview", "Charts", "Fundamentals", "Valuation", "News", "Screener", "Watchlist", "Portfolio", "Alerts", "Notes", "Settings"];
+const SIDE = ["Overview", "Fundamentals", "Valuation", "News"];
 const PERF_COLS = ["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y"];
 
 function StockPage() {
@@ -52,9 +55,11 @@ function StockPage() {
   // ML Prediction state
   const [mlPrediction, setMlPrediction] = useState<PredictionData | null>(null);
   const [loadingPrediction, setLoadingPrediction] = useState(true);
+  const [forecastError, setForecastError] = useState("");
 
   // Paper trading integration
   const paper = usePaperTrading();
+  const peerQuotes = useLiveQuotes();
   const { activeKey } = useAIKeyManager();
   const [tradeQty, setTradeQty] = useState(10);
   const [tradeMsg, setTradeMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -68,6 +73,7 @@ function StockPage() {
     setMlPrediction(null);
     setLoadingLive(true);
     setLoadingPrediction(true);
+    setForecastError("");
 
     fetch(`/api/stock-data?ticker=${encodeURIComponent(activeSymbol)}`, {
       signal: controller.signal,
@@ -77,9 +83,8 @@ function StockPage() {
         return res.json();
       })
       .then((json) => {
-        if (json.status === "success" && json.data) {
-          const retTicker = (json.data.ticker || "").toUpperCase();
-          if (retTicker.includes(activeSymbol) || activeSymbol.includes(retTicker)) {
+        if (!controller.signal.aborted && json.status === "success" && json.data) {
+          if (Number.isFinite(json.data.current_price) && json.data.current_price > 0) {
             setLiveData(json.data);
           }
         }
@@ -89,88 +94,71 @@ function StockPage() {
           console.error("Error fetching live stock data:", err);
         }
       })
-      .finally(() => setLoadingLive(false));
+      .finally(() => { if (!controller.signal.aborted) setLoadingLive(false); });
 
     fetch(`/api/predict?ticker=${encodeURIComponent(activeSymbol)}`, {
       signal: controller.signal,
       headers: activeKey ? { "X-AI-Key": activeKey } : {},
     })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((json) => {
-        if (json.status === "success" && json.data) {
-          const retSymbol = (json.data.symbol || "").toUpperCase();
-          if (retSymbol.includes(activeSymbol) || activeSymbol.includes(retSymbol)) {
-            setMlPrediction(json.data);
-          }
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok || json.status !== "success" || !json.data?.symbol) {
+          throw new Error(json.message || "Hybrid forecast unavailable.");
         }
+        if (!controller.signal.aborted) setMlPrediction(json.data);
       })
       .catch((err) => {
-        if (err.name !== "AbortError") {
-          console.error("Error fetching ML prediction:", err);
-        }
+        if (!controller.signal.aborted) setForecastError(err.message || "Hybrid forecast unavailable.");
       })
-      .finally(() => setLoadingPrediction(false));
+      .finally(() => { if (!controller.signal.aborted) setLoadingPrediction(false); });
 
     return () => {
       controller.abort();
     };
   }, [quote.symbol, activeKey]);
 
-  // Derived 100% Real Fields (falling back gracefully to quote if loading)
-  const price = liveData?.current_price ?? quote.price;
-  const change = liveData?.change ?? quote.change;
-  const changePct = liveData?.change_pct ?? quote.changePct;
+  const hasQuote = !!liveData;
+  const price = liveData?.current_price ?? 0;
+  const change = liveData?.change ?? 0;
+  const changePct = liveData?.change_pct ?? 0;
   const companyName = liveData?.company_name ?? quote.name;
-  const dayHigh = liveData?.day_high ?? price * 1.008;
-  const dayLow = liveData?.day_low ?? price * 0.986;
-  const weekHigh = liveData?.week_52_high ?? price * 1.15;
-  const weekLow = liveData?.week_52_low ?? price * 0.75;
-  const volumeStr = liveData?.volume ? Number(liveData.volume).toLocaleString("en-IN") : quote.volume;
-  const marketCapStr = liveData?.market_cap_cr ? `₹${fmt(liveData.market_cap_cr, 0)} Cr` : `${quote.marketCap} INR`;
+  const dayHigh = liveData?.day_high ?? 0;
+  const dayLow = liveData?.day_low ?? 0;
+  const weekHigh = liveData?.week_52_high ?? 0;
+  const weekLow = liveData?.week_52_low ?? 0;
+  const volumeStr = liveData?.volume ? Number(liveData.volume).toLocaleString("en-IN") : "—";
+  const marketCapStr = liveData?.market_cap_cr ? `₹${fmt(liveData.market_cap_cr, 0)} Cr` : "—";
 
-  // Real Fundamentals
-  const pe = liveData?.pe_ratio ? fmt(liveData.pe_ratio, 2) : "22.50";
-  const pb = liveData?.pb_ratio ? fmt(liveData.pb_ratio, 2) : "2.40";
-  const roe = liveData?.roe ? `${fmt(liveData.roe, 2)}%` : "14.20%";
-  const roce = liveData?.roce ? `${fmt(liveData.roce, 2)}%` : "16.80%";
-  const revCr = liveData?.revenue_cr ? `₹${fmt(liveData.revenue_cr, 0)} Cr` : "₹45,000 Cr";
-  const profitMargin = liveData?.profit_margin ? `${fmt(liveData.profit_margin, 2)}%` : "12.4%";
-  const eps = liveData?.eps ? fmt(liveData.eps, 2) : fmt(price / (Number(pe) || 20), 2);
-  const divYield = liveData?.dividend_yield != null ? `${fmt(liveData.dividend_yield, 2)}%` : "1.10%";
-  const debtEquity = liveData?.debt_equity != null ? fmt(liveData.debt_equity, 2) : "0.35";
+  const metric = (value: number | null | undefined, digits = 2, suffix = "", prefix = "") =>
+    typeof value === "number" && Number.isFinite(value) && value !== 0
+      ? `${prefix}${fmt(value, digits)}${suffix}` : "—";
+  const pe = metric(liveData?.pe_ratio);
+  const pb = metric(liveData?.pb_ratio);
+  const roe = metric(liveData?.roe, 2, "%");
+  const roce = metric(liveData?.roce, 2, "%");
+  const revCr = metric(liveData?.revenue_cr, 0, " Cr", "₹");
+  const profitMargin = metric(liveData?.profit_margin, 2, "%");
+  const eps = metric(liveData?.eps);
+  const divYield = metric(liveData?.dividend_yield, 2, "%");
+  const debtEquity = metric(liveData?.debt_equity);
+  const rsi = metric(liveData?.rsi_14, 1);
+  const ema20 = metric(liveData?.ema_20);
+  const ema50 = metric(liveData?.ema_50);
+  const ema200 = metric(liveData?.ema_200);
 
-  // Real Technical Indicators
-  const rsi = liveData?.rsi_14 ? fmt(liveData.rsi_14, 1) : "54.2";
-  const ema20 = liveData?.ema_20 ? fmt(liveData.ema_20, 2) : fmt(price * 0.985);
-  const ema50 = liveData?.ema_50 ? fmt(liveData.ema_50, 2) : fmt(price * 0.96);
-  const ema200 = liveData?.ema_200 ? fmt(liveData.ema_200, 2) : fmt(price * 0.91);
-
-  // Real Targets & DCF
-  const targetPrice = liveData?.target_price ? liveData.target_price : price * 1.12;
-  const targetHigh = liveData?.target_high ? liveData.target_high : price * 1.25;
-  const targetLow = liveData?.target_low ? liveData.target_low : price * 0.82;
-
-  // Multi-Agent Consensus Scoring Engine
-  const numRsi = Number(rsi) || 50;
-  const numRoe = Number(liveData?.roe ?? 15);
-  const numPe = Number(liveData?.pe_ratio ?? 22);
-
-  const fundamentalScore = Math.min(95, Math.max(35, Math.round(50 + (numRoe > 15 ? 20 : 0) + (numPe < 25 ? 15 : -10))));
-  const technicalScore = Math.min(95, Math.max(30, Math.round((numRsi >= 45 && numRsi <= 68 ? 75 : 55) + (price > (liveData?.ema_50 ?? price) ? 15 : -15))));
-  const overallScore = Math.round((fundamentalScore * 0.45) + (technicalScore * 0.55));
-  const consensusVerdict = overallScore >= 75 ? "STRONG BUY" : overallScore >= 60 ? "BUY" : overallScore >= 45 ? "HOLD" : "REDUCE";
-  const stopLossPrice = Math.round(dayLow * 0.985);
+  const targetPrice = liveData?.target_price ?? 0;
+  const targetHigh = liveData?.target_high ?? 0;
+  const targetLow = liveData?.target_low ?? 0;
 
   const handleBuy = () => {
+    if (!hasQuote) return;
     const res = paper.buyStock(quote.symbol, companyName, price, tradeQty);
     setTradeMsg({ text: res.message, ok: res.success });
     setTimeout(() => setTradeMsg(null), 4000);
   };
 
   const handleSell = () => {
+    if (!hasQuote) return;
     const res = paper.sellStock(quote.symbol, price, tradeQty);
     setTradeMsg({ text: res.message, ok: res.success });
     setTimeout(() => setTradeMsg(null), 4000);
@@ -200,35 +188,34 @@ function StockPage() {
         </div>
 
         <div className="flex items-baseline gap-3">
-          <LivePrice value={price} className="text-3xl font-bold" />
-          <span className="text-xs text-muted-foreground">INR</span>
-          <span
+          {hasQuote ? <LivePrice value={price} className="text-3xl font-bold" /> : <span>—</span>}
+          <span className="text-xs text-muted-foreground">{liveData?.currency_symbol ?? ""}</span>
+          {hasQuote && <span
             className={`rounded px-2 py-1 text-xs font-semibold ${changePct >= 0 ? "bg-bull/15 text-bull" : "bg-bear/15 text-bear"}`}
           >
             {change >= 0 ? "+" : ""}
             {fmt(change)} ({changePct >= 0 ? "+" : ""}
             {fmt(changePct, 2)}%)
-          </span>
+          </span>}
         </div>
 
         {[
-          ["Day Range", `${fmt(dayLow)} – ${fmt(dayHigh)}`],
-          ["52W Range", `${fmt(weekLow)} – ${fmt(weekHigh)}`],
+          ["Day Range", dayLow && dayHigh ? `${fmt(dayLow)} – ${fmt(dayHigh)}` : "—"],
+          ["52W Range", weekLow && weekHigh ? `${fmt(weekLow)} – ${fmt(weekHigh)}` : "—"],
           ["Volume", volumeStr],
           ["Market Cap", marketCapStr],
         ].map(([k, v]) => (
           <div key={k}>
             <p className="text-[0.58rem] tracking-widest text-muted-foreground uppercase">{k}</p>
-            <p className="num text-xs font-semibold">{v}</p>
+            <p className="num text-xs font-semibold">{hasQuote ? v : "—"}</p>
           </div>
         ))}
 
         <div className="ml-auto flex items-center gap-2">
-          {loadingLive && (
-            <span className="text-[0.65rem] text-primary animate-pulse font-medium">Syncing Live Data...</span>
-          )}
-          <span className="flex items-center gap-2 rounded-md border border-bull/40 bg-bull/10 px-3 py-1.5 text-[0.65rem] font-bold tracking-widest text-bull">
-            <span className="size-2 animate-pulse rounded-full bg-bull" /> 100% REAL LIVE
+          <span className="text-xs text-muted-foreground" role="status">
+            {loadingLive ? "Syncing market data…" : hasQuote
+              ? `${liveData.source ?? "Provider snapshot"} · ${liveData.observed_at ?? "Exchange timestamp unavailable"}`
+              : "Market quote unavailable"}
           </span>
         </div>
       </div>
@@ -259,7 +246,7 @@ function StockPage() {
 
           <div className="panel mt-3 p-3">
             <p className="mb-2 text-[0.58rem] tracking-widest text-muted-foreground uppercase">Peers</p>
-            {BASE_QUOTES.filter((p) => p.symbol !== quote.symbol)
+            {peerQuotes.filter((p) => p.symbol !== quote.symbol)
               .slice(0, 4)
               .map((p) => (
                 <Link
@@ -335,14 +322,14 @@ function StockPage() {
 
               <div className="px-3 pt-3 text-[0.68rem]">
                 <p className="font-semibold">
-                  {companyName} · {range} · Exchange Live Feed
+                  {companyName} · {range} · Provider history
                   <span className="ml-2 inline-block size-2 animate-pulse rounded-full bg-bull align-middle" />
                 </p>
                 <div className="num mt-1 flex flex-wrap gap-4 text-muted-foreground">
-                  <span>O {fmt(dayLow)}</span>
-                  <span>H {fmt(dayHigh)}</span>
-                  <span>L {fmt(dayLow)}</span>
-                  <span className="text-bull font-bold">C {fmt(price)}</span>
+                  <span>O {metric(liveData?.open_price)}</span>
+                  <span>H {metric(dayHigh)}</span>
+                  <span>L {metric(dayLow)}</span>
+                  <span className="text-bull font-bold">C {metric(price)}</span>
                   <span>Vol {volumeStr}</span>
                   <span className="text-chart-1">EMA 20 {ema20}</span>
                   <span className="text-primary">EMA 50 {ema50}</span>
@@ -351,22 +338,22 @@ function StockPage() {
               </div>
 
               {/* Real Candlestick Chart passing live candle series and ML 5-Day Projection Cone */}
-              <CandleChart
+              {liveData?.chart_series?.candles?.length ? <CandleChart
                 symbol={quote.symbol}
                 base={price}
                 range={range}
                 candlesData={liveData?.chart_series?.candles}
-                projectionData={mlPrediction?.projection_cone}
-              />
+                projectionData={mlPrediction?.projection_cone ?? []}
+              /> : <p className="p-6 text-sm text-muted-foreground">{loadingLive ? "Loading chart…" : "Chart unavailable"}</p>}
             </section>
 
             {/* Surya ML Predictive Intelligence Engine Card */}
+            {forecastError && <p role="alert" className="p-4 text-bear">{forecastError}</p>}
             <MLPredictionCard
               prediction={mlPrediction}
               loading={loadingPrediction}
-              currentQuotePrice={price}
-              quoteId={liveData?.quote_id}
-              asOf={liveData?.as_of}
+              currentQuotePrice={hasQuote ? price : 0}
+              asOf={liveData?.observed_at}
             />
 
             {/* 1-Click Virtual Paper Trading Console (Inspired by OpenAlgo) */}
@@ -392,22 +379,23 @@ function StockPage() {
 
                   <div className="text-xs text-right">
                     <span className="text-muted-foreground">Order Value: </span>
-                    <span className="font-bold text-foreground">₹{fmt(price * tradeQty, 2)}</span>
+                    <span className="font-bold text-foreground">{hasQuote ? `₹${fmt(price * tradeQty, 2)}` : "—"}</span>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <button
                     onClick={handleBuy}
+                    disabled={!hasQuote}
                     className="flex items-center justify-center gap-2 rounded bg-bull py-2.5 text-xs font-bold uppercase text-white hover:brightness-110 active:scale-[0.99] transition"
                   >
                     <ArrowUpRight className="size-4" />
-                    Buy {tradeQty} Shares @ ₹{fmt(price)}
+                    Buy {tradeQty} Shares{hasQuote && ` @ ₹${fmt(price)}`}
                   </button>
 
                   <button
                     onClick={handleSell}
-                    disabled={!userPosition || userPosition.quantity <= 0}
+                    disabled={!hasQuote || !userPosition || userPosition.quantity < tradeQty}
                     className="flex items-center justify-center gap-2 rounded bg-bear py-2.5 text-xs font-bold uppercase text-white hover:brightness-110 active:scale-[0.99] disabled:opacity-40 transition"
                   >
                     <ArrowDownRight className="size-4" />
@@ -428,7 +416,7 @@ function StockPage() {
             </Panel>
 
             {tab === "Overview" && (
-              <Panel title="Financial Performance Benchmark">
+              <Panel title="Illustrative Performance Benchmark">
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
@@ -494,84 +482,46 @@ function StockPage() {
                   <div className="grid grid-cols-3 gap-3 text-center">
                     <div className="p-3 bg-bear/10 rounded border border-bear/30">
                       <p className="text-bear font-bold">BEAR CASE / SUPPORT</p>
-                      <p className="num text-lg font-bold">₹{fmt(targetLow, 0)}</p>
+                      <p className="num text-lg font-bold">{metric(targetLow, 0, "", "₹")}</p>
                     </div>
                     <div className="p-3 bg-primary/10 rounded border border-primary/30">
                       <p className="text-primary font-bold">CONSENSUS TARGET</p>
-                      <p className="num text-lg font-bold">₹{fmt(targetPrice, 0)}</p>
+                      <p className="num text-lg font-bold">{metric(targetPrice, 0, "", "₹")}</p>
                     </div>
                     <div className="p-3 bg-bull/10 rounded border border-bull/30">
                       <p className="text-bull font-bold">BULL CASE TARGET</p>
-                      <p className="num text-lg font-bold">₹{fmt(targetHigh, 0)}</p>
+                      <p className="num text-lg font-bold">{metric(targetHigh, 0, "", "₹")}</p>
                     </div>
                   </div>
                 </div>
               </Panel>
             )}
 
-            {tab !== "Overview" && tab !== "Fundamentals" && tab !== "Valuation" && (
-              <Panel title={`${tab} Module — ${quote.symbol}`}>
-                <div className="p-4 text-xs text-muted-foreground">
-                  <p className="font-bold text-foreground mb-1">Active Section: {tab}</p>
-                  <p>Viewing live technical metrics, analyst models, and market intelligence for {companyName} ({quote.symbol}).</p>
-                </div>
+            {tab === "News" && (
+              <Panel title={`Provider News — ${quote.symbol}`}>
+                {liveData?.news_headlines?.length ? (
+                  <ul className="space-y-2 text-xs">
+                    {liveData.news_headlines.map((item: { title: string; date?: string; source?: string }, index: number) => (
+                      <li key={index}>{item.title} · {[item.source, item.date].filter(Boolean).join(" · ")}</li>
+                    ))}
+                  </ul>
+                ) : <p className="text-xs text-muted-foreground">No provider headlines available.</p>}
               </Panel>
             )}
           </div>
 
           {/* Right Sidebar: Multi-Agent Consensus, Live Fundamentals, and AI Studio */}
           <div className="space-y-4">
-            {/* 4-Agent Multi-Agent Consensus Box (Inspired by ai-hedge-fund) */}
-            <Panel title="Institutional AI Committee Consensus">
-              <div className="space-y-3 text-xs">
-                <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                  <div>
-                    <span className="text-[0.6rem] tracking-widest text-muted-foreground uppercase">Verdict</span>
-                    <p className={`text-xl font-bold tracking-wide ${overallScore >= 60 ? "text-bull" : "text-bear"}`}>
-                      {consensusVerdict}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[0.6rem] tracking-widest text-muted-foreground uppercase">Confidence</span>
-                    <p className="text-xl font-bold text-primary">{overallScore}%</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2.5 rounded bg-secondary/40 border border-border/50">
-                    <div className="flex items-center gap-1.5 text-primary mb-1">
-                      <TrendingUp className="size-3.5" />
-                      <span className="font-bold text-[0.65rem] uppercase">Fundamental</span>
-                    </div>
-                    <p className="text-base font-bold">{fundamentalScore}/100</p>
-                    <p className="text-[0.6rem] text-muted-foreground">ROE {roe} · P/E {pe}</p>
-                  </div>
-
-                  <div className="p-2.5 rounded bg-secondary/40 border border-border/50">
-                    <div className="flex items-center gap-1.5 text-bull mb-1">
-                      <Cpu className="size-3.5" />
-                      <span className="font-bold text-[0.65rem] uppercase">Technical</span>
-                    </div>
-                    <p className="text-base font-bold">{technicalScore}/100</p>
-                    <p className="text-[0.6rem] text-muted-foreground">RSI {rsi} · EMA Bullish</p>
-                  </div>
-                </div>
-
-                <div className="p-2.5 rounded bg-secondary/40 border border-border/50 flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="size-4 text-chart-4" />
-                    <div>
-                      <p className="text-[0.65rem] font-bold uppercase">Risk Manager Gate</p>
-                      <p className="text-[0.6rem] text-muted-foreground">Suggested Stop-Loss</p>
-                    </div>
-                  </div>
-                  <p className="text-sm font-bold text-bear">₹{fmt(stopLossPrice, 2)}</p>
-                </div>
+            <Panel title="Market Indicators">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <p>RSI (14) <strong>{rsi}</strong></p>
+                <p>EMA (50) <strong>{ema50}</strong></p>
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">The paper trade shortcut follows the hybrid forecast below the chart.</p>
             </Panel>
 
             {/* Live Fundamentals Grid */}
-            <Panel title="Real Market Fundamentals (Exchange Verified)">
+            <Panel title="Provider Fundamentals">
               <div className="grid grid-cols-5 gap-2 text-center">
                 {[
                   ["Market Cap", marketCapStr],
@@ -594,7 +544,7 @@ function StockPage() {
             </Panel>
 
             {/* DCF Valuation */}
-            <Panel title="DCF Intrinsic Fair Value (INR)">
+            <Panel title="Provider Analyst Targets">
               <div className="grid grid-cols-3 text-center text-xs">
                 {[
                   ["Bear Case", targetLow, "text-bear"],
@@ -603,15 +553,15 @@ function StockPage() {
                 ].map(([k, v, c]) => (
                   <div key={k as string}>
                     <p className={`text-[0.58rem] font-bold tracking-widest uppercase ${c}`}>{k}</p>
-                    <p className="num text-lg font-bold">₹{fmt(v as number, 0)}</p>
+                    <p className="num text-lg font-bold">{metric(v as number, 0, "", "₹")}</p>
                   </div>
                 ))}
               </div>
               <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gradient-to-r from-bear via-primary to-bull" />
               <div className="num mt-1 flex justify-between text-[0.6rem] text-muted-foreground">
-                <span>{fmt(targetLow, 0)}</span>
-                <span className="text-foreground font-bold">Current {fmt(price, 2)}</span>
-                <span>{fmt(targetHigh, 0)}</span>
+                <span>{metric(targetLow, 0)}</span>
+                <span className="text-foreground font-bold">Current {metric(price)}</span>
+                <span>{metric(targetHigh, 0)}</span>
               </div>
             </Panel>
 

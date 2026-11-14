@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 
 # In-memory cache for sub-second speeds (60s TTL)
 DATA_CACHE = {}
-TOP5_CACHE = {"timestamp": 0, "data": []}
 INDICES_CACHE = {"time": 0, "data": []}
 HIGH_VALUE_CACHE = {"time": 0, "data": []}
 
@@ -115,52 +114,10 @@ NSE_HEADERS = {
 }
 
 def _resolve_company_name_to_symbol(query: str) -> str:
-    """Intelligently converts company names (e.g. 'tata', 'zomato', 'apple', 'infosys', 'palantir') to real trading symbols."""
-    clean = query.strip().lower()
-    if clean in COMPANY_NAME_MAP:
-        return COMPANY_NAME_MAP[clean]
+    """Apply explicit aliases before authoritative instrument validation."""
+    clean = query.strip()
+    return COMPANY_NAME_MAP.get(clean.lower(), clean.upper())
 
-    # Layer 0: Check SQLite Ticker Universe (2,500+ NSE/BSE listed equities & aliases)
-    try:
-        from ticker_universe import resolve_and_validate_symbol
-        valid, u_sym, _ = resolve_and_validate_symbol(clean)
-        if valid:
-            return u_sym
-    except Exception:
-        pass
-
-    # Layer 1: Yahoo Ticker Search API
-    try:
-        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(clean)}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        r = requests.get(url, headers=headers, timeout=3).json()
-        quotes = r.get("quotes", [])
-        for q in quotes:
-            sym = q.get("symbol")
-            if sym and not sym.startswith("0P") and not "." in sym:
-                return sym
-            if sym and sym.endswith((".NS", ".BO")):
-                return sym
-        if quotes and quotes[0].get("symbol"):
-            return quotes[0]["symbol"]
-    except Exception:
-        pass
-
-    # Layer 2: Web Search Ticker Resolver (Resolves ANY company name worldwide in <1s)
-    try:
-        import re
-        q_str = clean + " yahoo finance ticker symbol"
-        search_url = "https://html.duckduckgo.com/html/?q=" + requests.utils.quote(q_str)
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        html = requests.get(search_url, headers=headers, timeout=3).text
-        matches = re.findall(r'finance\.yahoo\.com/quote/([A-Za-z0-9\.\%-]+)', html)
-        if matches:
-            resolved = matches[0].upper().replace("%5E", "^")
-            return resolved
-    except Exception:
-        pass
-
-    return query.strip().upper()
 
 def _get_nse_session():
     session = requests.Session()
@@ -607,45 +564,23 @@ def get_stock_data(ticker: str, use_cache: bool = True) -> dict:
     return data
 
 def _fetch_single_top_quote(ticker: str, name: str) -> dict:
-    try:
-        stock = yf.Ticker(f"{ticker}.NS")
-        fi = stock.fast_info
-        last_p = float(fi.last_price or 0)
-        prev_p = float(fi.previous_close or last_p or 1)
-        chg = last_p - prev_p
-        chg_pct = (chg / prev_p * 100) if prev_p else 0
-        day_h = float(fi.day_high or last_p)
-        day_l = float(fi.day_low or last_p)
-
-        return {
-            "ticker": ticker,
-            "name": name,
-            "price": round(last_p, 2),
-            "change": round(chg, 2),
-            "change_pct": round(chg_pct, 2),
-            "day_high": round(day_h, 2),
-            "day_low": round(day_l, 2),
-            "sector": "Indian Equities",
-        }
-    except Exception:
-        d = get_stock_data(ticker)
-        return {
-            "ticker": ticker,
-            "name": d.get("company_name", name),
-            "price": d.get("current_price", 0),
-            "change": d.get("change", 0),
-            "change_pct": d.get("change_pct", 0),
-            "day_high": d.get("day_high", 0),
-            "day_low": d.get("day_low", 0),
-            "sector": d.get("sector", "Indian Equities"),
-        }
+    data = get_stock_data(ticker)
+    return {
+        "ticker": ticker,
+        "name": data.get("company_name", name),
+        "price": data["current_price"],
+        "change": data.get("change", 0),
+        "change_pct": data.get("change_pct", 0),
+        "day_high": data.get("day_high"),
+        "day_low": data.get("day_low"),
+        "sector": data.get("sector", "Indian Equities"),
+        "source": data.get("source"),
+        "observed_at": data.get("observed_at"),
+        "as_of": data.get("as_of"),
+        "quote_id": data.get("quote_id"),
+    }
 
 def get_top_5_stocks() -> list:
-    global TOP5_CACHE
-    now = time.time()
-    if now - TOP5_CACHE["timestamp"] < 60 and TOP5_CACHE["data"]:
-        return TOP5_CACHE["data"]
-
     top_tickers = [
         ("RELIANCE", "Reliance Industries"),
         ("TCS", "Tata Consultancy Services"),
@@ -666,7 +601,6 @@ def get_top_5_stocks() -> list:
     order_map = {t[0]: i for i, t in enumerate(top_tickers)}
     results.sort(key=lambda x: order_map.get(x["ticker"], 99))
 
-    TOP5_CACHE = {"timestamp": now, "data": results}
     return results
 
 def _format_raw_display(**kw) -> str:

@@ -5,6 +5,7 @@ renaming/relisting resolution (e.g. Zomato -> ETERNAL.NS),
 2-year historical data backfilling, and SQLite persistence.
 """
 
+from collections import OrderedDict
 import os
 import sqlite3
 import io
@@ -15,6 +16,7 @@ from threading import Lock
 import requests
 import pandas as pd
 import yfinance as yf
+from yfinance.exceptions import YFPricesMissingError
 from datetime import datetime, timedelta, timezone
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "ticker_universe.db")
@@ -224,6 +226,8 @@ KNOWN_GLOBAL_ASSETS = {
 
 MASTER_REFRESH_LOCK = Lock()
 MASTER_REFRESH_AFTER = 0.0
+PROVIDER_MISSES = OrderedDict()
+PROVIDER_MISSES_LOCK = Lock()
 
 
 def _refresh_master_if_due():
@@ -287,6 +291,9 @@ def resolve_and_validate_symbol(query: str) -> tuple[bool, str, dict]:
     # Exact provider symbols outside the NSE master may have verifiable data.
     # Do not strip exchange suffixes or substitute a similarly named instrument.
     if re.fullmatch(r"[A-Z0-9^][A-Z0-9.^&=_-]{0,31}", q_clean):
+        with PROVIDER_MISSES_LOCK:
+            if PROVIDER_MISSES.get(q_clean, 0) > time.monotonic():
+                return False, q_clean, {}
         try:
             bars = yf.Ticker(q_clean).history(period="5d", timeout=3, raise_errors=True)
             if not bars.empty and any(math.isfinite(value) and value > 0 for value in bars["Close"].dropna()):
@@ -295,8 +302,17 @@ def resolve_and_validate_symbol(query: str) -> tuple[bool, str, dict]:
                     "symbol": q_clean, "company_name": q_clean, "exchange": exchange,
                     "sector": "", "isin": "",
                 }
-        except Exception:
+        except YFPricesMissingError:
             pass
+        except Exception:
+            return False, q_clean, {}
+        # Cache empty or explicitly missing results briefly. Transient failures
+        # remain eligible for retry, and local listings always take precedence.
+        with PROVIDER_MISSES_LOCK:
+            PROVIDER_MISSES[q_clean] = time.monotonic() + 60
+            PROVIDER_MISSES.move_to_end(q_clean)
+            if len(PROVIDER_MISSES) > 512:
+                PROVIDER_MISSES.popitem(last=False)
     return False, q_clean, {}
 
 

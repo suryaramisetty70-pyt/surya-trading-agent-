@@ -54,7 +54,7 @@ function saveState(state: PortfolioState) {
 }
 
 export function buyStock(symbol: string, name: string, price: number, quantity: number) {
-  if (quantity <= 0 || price <= 0) {
+  if (!symbol.trim() || !Number.isSafeInteger(quantity) || quantity <= 0 || !Number.isFinite(price * quantity) || price <= 0) {
     return { success: false, message: "Invalid quantity or price" };
   }
   const totalCost = price * quantity;
@@ -102,7 +102,7 @@ export function buyStock(symbol: string, name: string, price: number, quantity: 
 }
 
 export function sellStock(symbol: string, price: number, quantity: number) {
-  if (quantity <= 0 || price <= 0) {
+  if (!symbol.trim() || !Number.isSafeInteger(quantity) || quantity <= 0 || !Number.isFinite(price * quantity) || price <= 0) {
     return { success: false, message: "Invalid quantity or price" };
   }
   const state = getInitialState();

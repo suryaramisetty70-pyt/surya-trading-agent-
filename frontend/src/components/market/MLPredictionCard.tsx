@@ -58,7 +58,6 @@ export type PredictionData = {
       upper_bound_p90?: number;
       expected_return: string;
       horizon: string;
-      accuracy: string;
     }
   >;
   feature_attributions: Array<{
@@ -80,6 +79,7 @@ export type PredictionData = {
     hit_rate: number;
     sharpe_ratio: number;
     sortino_ratio: number;
+    inference_mode?: "trained" | "rules";
   };
   ai_explanation?: {
     headline_summary: string;
@@ -95,14 +95,12 @@ export default function MLPredictionCard({
   prediction,
   loading = false,
   currentQuotePrice,
-  quoteId,
   asOf,
   onRetrain,
 }: {
   prediction: PredictionData | null;
   loading?: boolean;
   currentQuotePrice?: number;
-  quoteId?: string;
   asOf?: string;
   onRetrain?: () => void;
 }) {
@@ -126,9 +124,8 @@ export default function MLPredictionCard({
 
   if (!prediction) return null;
 
-  const executionPrice = currentQuotePrice && currentQuotePrice > 0 && isFinite(currentQuotePrice)
-    ? currentQuotePrice
-    : prediction.current_price;
+  const executionPrice = currentQuotePrice ?? (prediction.quote_id ? prediction.current_price : 0);
+  const hasExecutionQuote = Number.isFinite(executionPrice) && executionPrice > 0;
 
   const isBull = prediction.direction === "BULLISH";
   const isBear = prediction.direction === "BEARISH";
@@ -137,7 +134,7 @@ export default function MLPredictionCard({
   const dirBg = isBull ? "bg-bull/15 border-bull/30" : isBear ? "bg-bear/15 border-bear/30" : "bg-primary/15 border-primary/30";
 
   const handleExecuteTrade = () => {
-    if (!prediction.symbol || !executionPrice || executionPrice <= 0 || !isFinite(executionPrice)) {
+    if (!prediction.symbol || !hasExecutionQuote || (!isBull && !isBear)) {
       setTradeMsg({ text: "Trade execution disabled: Invalid or unverified instrument quote.", ok: false });
       return;
     }
@@ -151,11 +148,7 @@ export default function MLPredictionCard({
     setTimeout(() => setTradeMsg(null), 4000);
   };
 
-  const horizons = prediction.multi_horizon_forecasts || {
-    "1D": { target: prediction.current_price, expected_return: "+0.4%", horizon: "1-Session (Overnight)", accuracy: "68%" },
-    "5D": { target: prediction.target_price, expected_return: `${prediction.expected_return_5d >= 0 ? "+" : ""}${prediction.expected_return_5d}%`, horizon: "5-Session (Weekly Swing)", accuracy: "65%" },
-    "20D": { target: prediction.bull_target, expected_return: "+3.8%", horizon: "20-Session (Monthly Cycle)", accuracy: "62%" },
-  };
+  const horizons = prediction.multi_horizon_forecasts;
 
   return (
     <Panel
@@ -163,14 +156,9 @@ export default function MLPredictionCard({
       action={
         <div className="flex items-center gap-2">
           <span className="text-[0.62rem] text-muted-foreground font-mono">
-            {prediction.model_metadata.version}
+            {prediction.model_metadata.version}{prediction.model_metadata.inference_mode === "rules" && " · Rules-based fallback"}
           </span>
-          <span className="rounded bg-bull/20 text-bull border border-bull/40 px-2 py-0.5 text-[0.6rem] font-bold">
-            Win-Rate: {(prediction.model_metadata.hit_rate * 100).toFixed(1)}%
-          </span>
-          <span className="rounded bg-primary/20 text-primary border border-primary/40 px-2 py-0.5 text-[0.6rem] font-bold hidden sm:inline">
-            Sortino: {prediction.model_metadata.sortino_ratio}
-          </span>
+
         </div>
       }
     >
@@ -191,10 +179,10 @@ export default function MLPredictionCard({
                   {actionLabel}
                 </span>
                 <span className="text-[0.7rem] font-extrabold px-2.5 py-0.5 rounded-full bg-background/90 text-foreground border border-border shadow-sm">
-                  {prediction.win_probability}% Confidence
+                  {prediction.win_probability}% Estimated Upside Probability
                 </span>
                 <span className="text-[0.65rem] font-bold px-2 py-0.5 rounded bg-primary/20 text-primary">
-                  R:R 1 : {prediction.risk_reward_ratio || 2.4}
+                  R:R 1 : {prediction.risk_reward_ratio ?? "—"}
                 </span>
               </div>
               <p className="text-[0.72rem] text-muted-foreground mt-1">
@@ -202,7 +190,7 @@ export default function MLPredictionCard({
                 <strong className={dirColor}>
                   {prediction.expected_return_5d >= 0 ? "+" : ""}{prediction.expected_return_5d}%
                 </strong>{" "}
-                · Current Price: <strong className="text-foreground">₹{fmt(prediction.current_price, 2)}</strong>
+                · Forecast Input Price: <strong className="text-foreground">₹{fmt(prediction.current_price, 2)}</strong>
               </p>
             </div>
           </div>
@@ -220,13 +208,13 @@ export default function MLPredictionCard({
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-[0.65rem] font-bold tracking-wider text-muted-foreground uppercase flex items-center gap-1.5">
-              <Clock className="size-3.5 text-primary" /> Multi-Horizon Trade Forecast Roadmap (1D, 5D, 20D Sessions)
+              <Clock className="size-3.5 text-primary" /> Multi-Horizon Trade Forecast Roadmap (1D, 5D and longer-term sessions)
             </span>
-            <span className="text-[0.6rem] text-muted-foreground">Quantile Regressor Intervals (P10 - P90)</span>
+            <span className="text-[0.6rem] text-muted-foreground">Model-based price ranges (P10–P90)</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            {Object.entries(horizons).map(([hKey, hVal]) => {
+            {Object.entries(horizons ?? {}).map(([hKey, hVal]) => {
               const isTargetPositive = !hVal.expected_return.startsWith("-");
               return (
                 <div
@@ -236,9 +224,6 @@ export default function MLPredictionCard({
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <span className="font-extrabold text-[0.72rem] text-primary">{hKey} Session Horizon</span>
-                      <span className="text-[0.58rem] px-1.5 py-0.2 rounded bg-background/80 text-muted-foreground font-mono">
-                        {hVal.accuracy}
-                      </span>
                     </div>
                     <p className="num text-base font-black text-foreground">₹{fmt(hVal.target, 2)}</p>
                     <div className="flex items-center justify-between mt-1 text-[0.62rem]">
@@ -440,8 +425,8 @@ export default function MLPredictionCard({
         {/* Quote Provenance & Reference Verification */}
         <div className="flex flex-wrap items-center justify-between text-[0.62rem] text-muted-foreground pb-1 px-1">
           <span>
-            Live Execution Quote: <strong className="text-foreground">₹{fmt(executionPrice, 2)}</strong>
-            {asOf && ` (${new Date(asOf).toLocaleTimeString()})`}
+            Paper Execution Quote: <strong className="text-foreground">{hasExecutionQuote ? `₹${fmt(executionPrice, 2)}` : "Unavailable"}</strong>
+            {asOf && ` (${asOf})`}
           </span>
           {prediction.forecast_reference_close && (
             <span>
@@ -455,12 +440,13 @@ export default function MLPredictionCard({
         <div className="pt-1">
           <button
             onClick={handleExecuteTrade}
+            disabled={!hasExecutionQuote || (!isBull && !isBear)}
             className={`w-full py-3 rounded-lg font-bold text-xs uppercase flex items-center justify-center gap-2 transition hover:brightness-110 active:scale-[0.99] text-white shadow-md ${
               isBear ? "bg-bear" : "bg-bull"
             }`}
           >
             <ArrowUpRight className="size-4" />
-            Execute ML {actionLabel} Setup in Paper Wallet (10 Shares @ ₹{fmt(executionPrice, 2)})
+            {isBull || isBear ? `Execute ML ${actionLabel} in Paper Wallet${hasExecutionQuote ? ` (10 Shares @ ₹${fmt(executionPrice, 2)})` : ""}` : "No paper order for a neutral signal"}
           </button>
 
           {tradeMsg && (

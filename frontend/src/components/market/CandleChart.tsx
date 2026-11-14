@@ -19,8 +19,8 @@ export default function CandleChart({
 }) {
   const count = { "1D": 60, "5D": 80, "1M": 110, "3M": 140, "6M": 170, "1Y": 200, "5Y": 240, MAX: 260 }[range] ?? 120;
   const data = useMemo(() => {
-    if (candlesData && candlesData.length > 5) {
-      return candlesData;
+    if (candlesData && candlesData.length > 0) {
+      return candlesData.slice(-count);
     }
     return candles(symbol, count, base);
   }, [symbol, count, base, candlesData]);
@@ -46,7 +46,7 @@ export default function CandleChart({
   const e200 = ema(closes, 200);
   const line = (vals: number[]) =>
     vals.map((v, i) => `${i ? "L" : "M"}${(pad.l + i * cw + cw / 2).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const maxV = Math.max(...data.map((d) => d.v));
+  const maxV = Math.max(1, ...data.map((d) => d.v));
   const active: CandleItem | undefined = hover != null ? data[hover] : undefined;
   const last = data[data.length - 1]!;
 

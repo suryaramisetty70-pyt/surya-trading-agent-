@@ -1,5 +1,10 @@
 # Multi-stage production Dockerfile for MAX MARKET
 # Fully compatible with Hugging Face Spaces (24/7 Free No-Sleep), Render, Railway & Docker
+FROM node:24-bookworm-slim AS frontend
+WORKDIR /build/frontend
+COPY frontend/ ./
+RUN npx --yes bun@1.3.11 install --frozen-lockfile && npm run build
+
 FROM python:3.11-slim
 
 # Prevent Python from writing pyc files and buffering stdout
@@ -27,8 +32,9 @@ ENV HOME=/home/user \
 
 WORKDIR /home/user/app
 
-# Copy application files (including pre-built frontend dist)
+# Replace the checked-in entry point and assets with a build from this revision.
 COPY --chown=user:user . .
+COPY --from=frontend --chown=user:user /build/frontend/dist/ ./frontend/dist/
 
 # Expose port (7860 default for Hugging Face Spaces, overridable by $PORT on Render/Cloud)
 EXPOSE 7860
