@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Panel } from "@/components/market/primitives";
 import { fmt } from "@/lib/market";
 import { usePaperTrading } from "@/lib/paperTrading";
-import { Layers, ArrowUpRight, ArrowDownRight, RefreshCw, Info } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 export type OptionStrikeRow = {
   strike: number;
@@ -29,6 +29,8 @@ export type OptionStrikeRow = {
 export type OptionChainData = {
   status: string;
   symbol: string;
+  spot_source?: string;
+  spot_observed_at?: string;
   spot_price: number;
   atm_strike: number;
   max_pain_strike: number;
@@ -48,22 +50,33 @@ export default function OptionChainPanel({ ticker = "NIFTY" }: { ticker?: string
   const paper = usePaperTrading();
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const fetchChain = (sym: string) => {
-    setLoading(true);
-    fetch(`/api/options-chain?ticker=${encodeURIComponent(sym)}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.status === "success" && res.data) {
-          setData(res.data);
-        }
-      })
-      .catch((e) => console.error("Error fetching options chain:", e))
-      .finally(() => setLoading(false));
-  };
+  const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
-    fetchChain(activeTicker);
-  }, [activeTicker]);
+    const controller = new AbortController();
+    setData(null);
+    setError("");
+    setMsg(null);
+    setLoading(true);
+    fetch(`/api/options-chain?ticker=${encodeURIComponent(activeTicker)}`, { signal: controller.signal })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || result.status !== "success" || result.data?.symbol !== activeTicker) {
+          throw new Error(result.message || "Option chain unavailable.");
+        }
+        if (!controller.signal.aborted) setData(result.data);
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) setError(err.message || "Option chain unavailable.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [activeTicker, refresh]);
+
+  const chain = !loading && data?.symbol === activeTicker ? data : null;
 
   const handleBuyOption = (type: "CE" | "PE", strike: number, premium: number) => {
     const optSym = `${activeTicker}_${strike}_${type}`;
@@ -92,7 +105,7 @@ export default function OptionChainPanel({ ticker = "NIFTY" }: { ticker?: string
         </div>
 
         <button
-          onClick={() => fetchChain(activeTicker)}
+          onClick={() => setRefresh((value) => value + 1)}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1 rounded bg-secondary hover:bg-secondary/80 text-xs text-muted-foreground hover:text-foreground font-semibold"
         >
@@ -100,31 +113,38 @@ export default function OptionChainPanel({ ticker = "NIFTY" }: { ticker?: string
         </button>
       </div>
 
-      {data && (
+      {loading && <p role="status">Loading {activeTicker} option estimates…</p>}
+      {error && <p role="alert">{error}</p>}
+      {chain && <p className="text-xs text-muted-foreground">
+        Paper simulation. Premiums, open interest and expiry are modeled.
+        {chain.spot_source && ` Spot source: ${chain.spot_source}.`}
+        {chain.spot_observed_at ? ` Observed: ${chain.spot_observed_at}.` : " Spot timestamp unavailable."}
+      </p>}
+      {chain && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
           <div className="p-3 rounded bg-secondary/40 border border-border/60">
             <p className="text-[0.62rem] uppercase text-muted-foreground">Spot Price</p>
-            <p className="num text-lg font-bold text-foreground">₹{fmt(data.spot_price, 2)}</p>
+            <p className="num text-lg font-bold text-foreground">₹{fmt(chain.spot_price, 2)}</p>
           </div>
 
           <div className="p-3 rounded bg-secondary/40 border border-border/60">
             <p className="text-[0.62rem] uppercase text-muted-foreground">Max Pain Strike</p>
-            <p className="num text-lg font-bold text-primary">₹{fmt(data.max_pain_strike, 0)}</p>
+            <p className="num text-lg font-bold text-primary">₹{fmt(chain.max_pain_strike, 0)}</p>
             <p className="text-[0.58rem] text-muted-foreground">Expiry Pinning Gravity</p>
           </div>
 
           <div className="p-3 rounded bg-secondary/40 border border-border/60">
             <p className="text-[0.62rem] uppercase text-muted-foreground">Put-Call Ratio (PCR)</p>
-            <p className={`num text-lg font-bold ${data.pcr >= 1.15 ? "text-bull" : data.pcr <= 0.85 ? "text-bear" : "text-primary"}`}>
-              {data.pcr}
+            <p className={`num text-lg font-bold ${chain.pcr >= 1.15 ? "text-bull" : chain.pcr <= 0.85 ? "text-bear" : "text-primary"}`}>
+              {chain.pcr}
             </p>
-            <p className="text-[0.58rem] text-muted-foreground">{data.sentiment}</p>
+            <p className="text-[0.58rem] text-muted-foreground">{chain.sentiment}</p>
           </div>
 
           <div className="p-3 rounded bg-secondary/40 border border-border/60">
             <p className="text-[0.62rem] uppercase text-muted-foreground">Near-Month Implied Vol (IV)</p>
-            <p className="num text-lg font-bold text-chart-4">{data.avg_iv}%</p>
-            <p className="text-[0.58rem] text-muted-foreground">{data.days_to_expiry} Days to Expiry</p>
+            <p className="num text-lg font-bold text-chart-4">{chain.avg_iv}%</p>
+            <p className="text-[0.58rem] text-muted-foreground">{chain.days_to_expiry} Days to Expiry</p>
           </div>
         </div>
       )}
@@ -140,7 +160,7 @@ export default function OptionChainPanel({ ticker = "NIFTY" }: { ticker?: string
       )}
 
       {/* Option Chain Table */}
-      <Panel title={`Live Option Chain & Black-Scholes Greeks — ${activeTicker}`}>
+      <Panel title={`Simulated Option Chain & Black-Scholes Greeks — ${activeTicker}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-center border-collapse">
             <thead>
@@ -153,16 +173,16 @@ export default function OptionChainPanel({ ticker = "NIFTY" }: { ticker?: string
                 <th className="py-1.5">OI</th>
                 <th className="py-1.5">IV%</th>
                 <th className="py-1.5">Delta</th>
-                <th className="py-1.5 border-r border-border font-bold text-foreground">LTP (₹)</th>
+                <th className="py-1.5 border-r border-border font-bold text-foreground">Premium (₹)</th>
                 <th className="py-1.5 font-bold text-primary bg-primary/10">Strike</th>
-                <th className="py-1.5 border-l border-border font-bold text-foreground">LTP (₹)</th>
+                <th className="py-1.5 border-l border-border font-bold text-foreground">Premium (₹)</th>
                 <th className="py-1.5">Delta</th>
                 <th className="py-1.5">IV%</th>
                 <th className="py-1.5">OI</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50 font-mono text-[0.72rem]">
-              {data?.chain.map((row) => (
+              {chain?.chain.map((row) => (
                 <tr
                   key={row.strike}
                   className={`hover:bg-secondary/40 transition ${

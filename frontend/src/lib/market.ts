@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 export type Quote = {
   symbol: string;
@@ -160,23 +160,43 @@ export function ema(values: number[], period: number) {
   return values.map((v, i) => (i === 0 ? v : (prev = v * k + prev * (1 - k))));
 }
 
-/** Simulated live tick: nudges quotes on an interval. */
-export function useLiveQuotes(initial: Quote[] = BASE_QUOTES, ms = 1400) {
-  const [quotes, setQuotes] = useState(initial);
-  const ref = useRef(initial);
-  useEffect(() => {
-    const id = setInterval(() => {
-      ref.current = ref.current.map((q) => {
-        const delta = (Math.random() - 0.5) * q.price * 0.0016;
-        const price = +(q.price + delta).toFixed(2);
-        const base = q.price - q.change;
-        const change = +(price - base).toFixed(2);
-        return { ...q, price, change, changePct: +((change / base) * 100).toFixed(2) };
+let topQuotesRequest: Promise<Quote[]> | undefined;
+
+function loadTopQuotes() {
+  topQuotesRequest ??= fetch("/api/top-stocks")
+    .then(async (response) => {
+      const result = await response.json();
+      if (!response.ok || result.status !== "success" || !Array.isArray(result.stocks)) {
+        throw new Error("Market quotes unavailable");
+      }
+      return result.stocks.flatMap((stock: { ticker: string; price: number; change: number; change_pct: number }) => {
+        const instrument = findQuote(stock.ticker);
+        if (!instrument || !Number.isFinite(stock.price) || stock.price <= 0) return [];
+        return [{ ...instrument, price: stock.price, change: stock.change, changePct: stock.change_pct }];
       });
-      setQuotes(ref.current);
-    }, ms);
-    return () => clearInterval(id);
-  }, [ms]);
+    })
+    .finally(() => { topQuotesRequest = undefined; });
+  return topQuotesRequest;
+}
+
+export function useLiveQuotes() {
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      loadTopQuotes().then((next) => {
+        if (mounted) setQuotes(next);
+      }).catch(() => {
+        if (mounted) setQuotes([]);
+      });
+    };
+    refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, []);
   return quotes;
 }
 

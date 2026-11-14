@@ -10,6 +10,7 @@ Calculates:
 import math
 import time
 from scipy.stats import norm
+from market_guard import MarketError
 from stock_data import get_stock_data, safe
 
 OPTIONS_CACHE = {}
@@ -71,7 +72,7 @@ def black_scholes_greeks(S: float, K: float, T: float, r: float, sigma: float):
 
 def get_options_chain(ticker: str) -> dict:
     """
-    Builds a full 11-strike live options chain with Greeks, Max Pain, and PCR.
+    Models an 11-strike paper options chain around a provider spot quote.
     Cached for 45s.
     """
     clean_ticker = ticker.strip().upper()
@@ -81,9 +82,9 @@ def get_options_chain(ticker: str) -> dict:
         return OPTIONS_CACHE[clean_ticker]["data"]
 
     stock_data = get_stock_data(clean_ticker)
-    spot_price = safe(stock_data.get("current_price"), 2500.0)
-    if spot_price <= 0:
-        spot_price = 2500.0
+    spot_price = safe(stock_data.get("current_price"))
+    if not math.isfinite(spot_price) or spot_price <= 0:
+        raise MarketError(422, "DATA_COVERAGE_ERROR", "Underlying spot quote unavailable.")
 
     # Determine standard strike intervals
     if spot_price > 10000:
@@ -100,7 +101,7 @@ def get_options_chain(ticker: str) -> dict:
         strike_step = 2.5
 
     atm_strike = round(spot_price / strike_step) * strike_step
-    strikes = [atm_strike + i * strike_step for i in range(-5, 6)]
+    strikes = [atm_strike + i * strike_step for i in range(-5, 6) if atm_strike + i * strike_step > 0]
 
     r = 0.065 # 6.5% Indian Repo Rate
     days_to_expiry = 14 # 2-week near-month expiry
@@ -177,6 +178,9 @@ def get_options_chain(ticker: str) -> dict:
     result = {
         "status": "success",
         "symbol": clean_ticker,
+        "mode": "simulated",
+        "spot_source": stock_data.get("source"),
+        "spot_observed_at": stock_data.get("observed_at"),
         "spot_price": round(spot_price, 2),
         "atm_strike": atm_strike,
         "max_pain_strike": max_pain_strike,

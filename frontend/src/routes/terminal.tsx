@@ -45,8 +45,8 @@ import {
   ExternalLink
 } from "lucide-react";
 import { TopBar, TickerTape } from "@/components/market/Chrome";
-import { Delta, Gauge, LivePrice, Panel, Sparkline } from "@/components/market/primitives";
-import { INDICES, NEWS, SECTOR_PERF, candles, useLiveQuotes, BASE_QUOTES, fmt } from "@/lib/market";
+import { Delta, Gauge, LivePrice, Panel } from "@/components/market/primitives";
+import { NEWS, SECTOR_PERF, useLiveQuotes, BASE_QUOTES, findQuote, fmt } from "@/lib/market";
 
 export const Route = createFileRoute("/terminal")({
   head: () => ({
@@ -83,7 +83,7 @@ const SIDE = [
 function Terminal() {
   const [active, setActive] = useState(() => {
     if (typeof window !== "undefined" && window.location.hash) {
-      const h = decodeURIComponent(window.location.hash.slice(1).split(":")[0]);
+      const h = decodeURIComponent(window.location.hash.slice(1).split(":")[0] ?? "");
       const match = SIDE.find((s) => s.label.toLowerCase() === h.toLowerCase());
       if (match) return match.label;
     }
@@ -93,7 +93,7 @@ function Terminal() {
   useEffect(() => {
     const handleHash = () => {
       if (typeof window !== "undefined" && window.location.hash) {
-        const h = decodeURIComponent(window.location.hash.slice(1).split(":")[0]);
+        const h = decodeURIComponent(window.location.hash.slice(1).split(":")[0] ?? "");
         const match = SIDE.find((s) => s.label.toLowerCase() === h.toLowerCase());
         if (match) setActive(match.label);
       }
@@ -141,7 +141,7 @@ function Terminal() {
               </span>
             </div>
             <span className="text-[0.65rem] tracking-wider text-muted-foreground uppercase">
-              100% REAL LIVE DATA & DUAL AI ENGINE
+              MARKET ANALYTICS & PAPER TRADING
             </span>
           </div>
 
@@ -174,43 +174,23 @@ function Terminal() {
 function DashboardView() {
   const quotes = useLiveQuotes();
   const [realIndices, setRealIndices] = useState<Array<{ symbol: string; price: number; change_pct: number }>>([]);
-  const [realMovers, setRealMovers] = useState<any[]>([]);
-
   useEffect(() => {
     fetch("/api/all-india-indices")
       .then((r) => r.json())
       .then((res) => {
-        if (res.status === "success" && Array.isArray(res.indices) && res.indices.length > 0) {
-          setRealIndices(res.indices);
-        }
+        if (res.status === "success" && Array.isArray(res.indices)) setRealIndices(res.indices);
       })
-      .catch((e) => console.error("Error fetching live indices:", e));
-
-    fetch("/api/top-stocks")
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.status === "success" && Array.isArray(res.stocks) && res.stocks.length > 0) {
-          setRealMovers(res.stocks);
-        }
-      })
-      .catch((e) => console.error("Error fetching top stocks:", e));
+      .catch(() => setRealIndices([]));
   }, []);
 
-  const displayIndices = realIndices.length > 0
-    ? realIndices.slice(0, 4).map((i) => ({ symbol: i.symbol, price: i.price, changePct: i.change_pct }))
-    : INDICES.slice(0, 4);
-
-  const gainers = realMovers.length > 0
-    ? realMovers.slice(0, 5).map((m) => ({ symbol: m.ticker || m.symbol, price: m.price, changePct: m.change_pct }))
-    : [...quotes].sort((a, b) => b.changePct - a.changePct).slice(0, 5);
-
-  const losers = [...quotes].sort((a, b) => a.changePct - b.changePct).slice(0, 5);
+  const displayIndices = realIndices.slice(0, 4).map((i) => ({ symbol: i.symbol, price: i.price, changePct: i.change_pct }));
+  const gainers = quotes.filter((quote) => quote.changePct > 0).sort((a, b) => b.changePct - a.changePct);
+  const losers = quotes.filter((quote) => quote.changePct < 0).sort((a, b) => a.changePct - b.changePct);
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
         {displayIndices.map((i) => {
-          const series = candles(i.symbol, 40, i.price).map((c) => c.c);
           return (
             <Panel key={i.symbol} className="p-3">
               <div className="flex items-center justify-between">
@@ -219,10 +199,7 @@ function DashboardView() {
               </div>
               <div className="mt-1 flex items-baseline justify-between">
                 <LivePrice value={i.price} className="text-xl font-bold" />
-                <span className="num text-[0.65rem] text-muted-foreground font-semibold">100% LIVE</span>
-              </div>
-              <div className="mt-2 h-9">
-                <Sparkline data={series} color={i.changePct >= 0 ? "var(--bull)" : "var(--bear)"} />
+                <span className="num text-[0.65rem] text-muted-foreground">Provider snapshot</span>
               </div>
             </Panel>
           );
@@ -264,7 +241,7 @@ function DashboardView() {
         </Panel>
 
         {/* 3. Sector Performance */}
-        <Panel title="Sector Performance">
+        <Panel title="Sample Sector Performance">
           <div className="grid grid-cols-2 gap-2 text-xs">
             {SECTOR_PERF.slice(0, 8).map((s) => (
               <div key={s.name} className={`rounded p-2 border ${s.pct >= 0 ? 'bg-bull/10 border-bull/30 text-bull' : 'bg-bear/10 border-bear/30 text-bear'}`}>
@@ -276,7 +253,7 @@ function DashboardView() {
         </Panel>
 
         {/* 4. Institutional Cash Activity */}
-        <Panel title="Institutional Cash Activity (FII / DII)">
+        <Panel title="Sample Institutional Cash Activity (FII / DII)">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-muted-foreground border-b border-border">
@@ -614,17 +591,42 @@ function MarketsView() {
    3. WATCHLIST VIEW
    ========================================================================= */
 function WatchlistView() {
-  const [list, setList] = useState(BASE_QUOTES.slice(0, 6));
+  const [list, setList] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("max-market-watchlist") ?? "null");
+      if (Array.isArray(saved) && saved.every((symbol) => typeof symbol === "string")) return saved;
+    } catch { /* Use defaults if browser storage is unavailable. */ }
+    return BASE_QUOTES.slice(0, 6).map(({ symbol }) => symbol);
+  });
   const [input, setInput] = useState("");
+  const [error, setError] = useState("");
+  const [quotes, setQuotes] = useState<Record<string, { current_price: number; change_pct: number }>>({});
+
+  useEffect(() => {
+    try { localStorage.setItem("max-market-watchlist", JSON.stringify(list)); } catch { /* Keep in-memory list. */ }
+    const controller = new AbortController();
+    for (const symbol of list) {
+      fetch(`/api/stock-data?ticker=${encodeURIComponent(symbol)}`, { signal: controller.signal })
+        .then((res) => res.json())
+        .then(({ data }) => {
+          if (!controller.signal.aborted && Number.isFinite(data?.current_price)) {
+            setQuotes((current) => ({ ...current, [symbol]: data }));
+          }
+        })
+        .catch(() => {});
+    }
+    return () => controller.abort();
+  }, [list]);
 
   const addItem = () => {
-    if (!input.trim()) return;
-    setList([...list, { symbol: input.toUpperCase(), name: `${input.toUpperCase()} Ltd.`, exchange: "NSE", price: 1500, change: 12, changePct: 0.8, sector: "General", marketCap: "1.5T", volume: "2M" }]);
+    const instrument = findQuote(input);
+    if (!instrument) {
+      setError("Choose a symbol available in the stock search.");
+      return;
+    }
+    setError("");
+    setList((current) => current.includes(instrument.symbol) ? current : [...current, instrument.symbol]);
     setInput("");
-  };
-
-  const removeItem = (sym: string) => {
-    setList(list.filter((x) => x.symbol !== sym));
   };
 
   return (
@@ -642,19 +644,15 @@ function WatchlistView() {
           </button>
         </div>
 
+        {error && <p role="alert" className="mb-2 text-xs text-bear">{error}</p>}
         <div className="space-y-2">
-          {list.map((item) => (
-            <div key={item.symbol} className="flex items-center justify-between rounded border border-border/60 bg-secondary/30 p-3 text-xs">
-              <div>
-                <span className="font-bold text-primary">{item.symbol}</span>
-                <span className="ml-2 text-muted-foreground">{item.name}</span>
-              </div>
+          {list.map((symbol) => (
+            <div key={symbol} className="flex items-center justify-between rounded border border-border/60 bg-secondary/30 p-3 text-xs">
+              <Link to="/stock/$symbol" params={{ symbol }} className="font-bold text-primary">{symbol}</Link>
               <div className="flex items-center gap-4">
-                <span className="num font-semibold">₹{fmt(item.price)}</span>
-                <span className={`num font-semibold ${item.changePct >= 0 ? 'text-bull' : 'text-bear'}`}>
-                  {item.changePct >= 0 ? '+' : ''}{item.changePct}%
-                </span>
-                <button onClick={() => removeItem(item.symbol)} className="text-bear hover:opacity-80">
+                <span className="num font-semibold">{quotes[symbol] ? `₹${fmt(quotes[symbol].current_price)}` : "Quote unavailable"}</span>
+                {quotes[symbol] && <Delta value={quotes[symbol].change_pct} />}
+                <button aria-label={`Remove ${symbol}`} onClick={() => setList((current) => current.filter((item) => item !== symbol))} className="text-bear hover:opacity-80">
                   <Trash2 className="size-4" />
                 </button>
               </div>
@@ -763,10 +761,36 @@ function OrdersView() {
   const [sym, setSym] = useState("TCS");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [qty, setQty] = useState(10);
-  const [price, setPrice] = useState(2350);
+  const [orderQuote, setOrderQuote] = useState<{ symbol: string; price: number } | null>(null);
+  const orderSymbol = sym.trim().toUpperCase();
+  const price = orderQuote?.symbol === orderSymbol ? orderQuote.price : 0;
+  const [quoteStatus, setQuoteStatus] = useState("");
+
+  useEffect(() => {
+    if (!orderSymbol) return;
+    const controller = new AbortController();
+    setOrderQuote(null);
+    setQuoteStatus("Loading provider quote…");
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/stock-data?ticker=${encodeURIComponent(orderSymbol)}`, { signal: controller.signal });
+        const json = await response.json();
+        const value = json.data?.current_price;
+        if (!response.ok || !Number.isFinite(value) || value <= 0) throw new Error("Quote unavailable");
+        if (!controller.signal.aborted) {
+          setOrderQuote({ symbol: orderSymbol, price: value });
+          setQuoteStatus(`${json.data.source ?? "Provider snapshot"} · ${json.data.observed_at ?? "Exchange timestamp unavailable"}`);
+        }
+      } catch {
+        if (!controller.signal.aborted) setQuoteStatus("Quote unavailable");
+      }
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [orderSymbol]);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const submitOrder = () => {
+    if (price <= 0) return;
     if (preferences.killSwitchEnabled) {
       setMsg({ text: "⚠️ KILL SWITCH ACTIVE: Orders blocked by your risk limit rules in Settings.", ok: false });
       return;
@@ -779,9 +803,9 @@ function OrdersView() {
 
     let res;
     if (side === "BUY") {
-      res = paper.buyStock(sym, sym, price, qty);
+      res = paper.buyStock(orderSymbol, orderSymbol, price, qty);
     } else {
-      res = paper.sellStock(sym, price, qty);
+      res = paper.sellStock(orderSymbol, price, qty);
     }
 
     if (res.success) {
@@ -810,7 +834,8 @@ function OrdersView() {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-muted-foreground uppercase text-[0.62rem]">Execution Price (INR)</label>
-              <input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} className="w-full rounded border border-border bg-secondary p-2 mt-1" />
+              <p className="rounded border border-border bg-secondary p-2 mt-1">{price > 0 ? `₹${fmt(price)}` : "—"}</p>
+              <p className="mt-1 text-muted-foreground" role="status">{orderSymbol && quoteStatus}</p>
             </div>
             <div>
               <label className="text-muted-foreground uppercase text-[0.62rem]">Quantity</label>
@@ -820,10 +845,10 @@ function OrdersView() {
 
           <div className="flex justify-between items-center text-xs p-2 rounded bg-secondary/50">
             <span className="text-muted-foreground">Order Value:</span>
-            <span className="font-bold text-foreground">₹{fmt(price * qty, 2)}</span>
+            <span className="font-bold text-foreground">{price > 0 ? `₹${fmt(price * qty, 2)}` : "—"}</span>
           </div>
 
-          <button onClick={submitOrder} className="w-full py-2.5 bg-primary text-primary-foreground font-bold rounded uppercase hover:brightness-110 transition">
+          <button onClick={submitOrder} disabled={price <= 0} className="w-full py-2.5 bg-primary text-primary-foreground font-bold rounded uppercase hover:brightness-110 transition">
             Execute Paper Order
           </button>
 
@@ -1092,7 +1117,7 @@ function AnalyticsView() {
    ========================================================================= */
 function NewsView() {
   return (
-    <Panel title="Live Real-Time Market News Feed">
+    <Panel title="Sample Market News">
       <div className="space-y-3 text-xs">
         {NEWS.map((n, i) => (
           <div key={i} className="border-b border-border/50 pb-2">
@@ -1718,7 +1743,7 @@ function SettingsView() {
   const [activeSubTab, setActiveSubTab] = useState<"BROKER" | "RISK" | "PREFS" | "AI" | "UNIVERSE">(() => {
     if (typeof window !== "undefined" && window.location.hash.includes(":")) {
       const sub = window.location.hash.split(":")[1]?.toUpperCase();
-      if (["BROKER", "RISK", "PREFS", "AI", "UNIVERSE"].includes(sub)) {
+      if (sub && ["BROKER", "RISK", "PREFS", "AI", "UNIVERSE"].includes(sub)) {
         return sub as any;
       }
     }

@@ -254,6 +254,11 @@ def get_options_chain_route():
         from options_engine import get_options_chain
         chain = get_options_chain(ticker)
         return safe_jsonify({'status': 'success', 'data': chain})
+    except MarketError as exc:
+        return safe_jsonify({'status': 'error', 'error_code': exc.code, 'message': str(exc)}, status=exc.status)
+    except ValueError as exc:
+        code = 'UNKNOWN_SYMBOL' if 'UNKNOWN_SYMBOL' in str(exc) else 'DATA_COVERAGE_ERROR'
+        return safe_jsonify({'status': 'error', 'error_code': code, 'message': str(exc)}, status=404 if code == 'UNKNOWN_SYMBOL' else 422)
     except Exception as e:
         return safe_jsonify({'status': 'error', 'message': str(e)}, status=500)
 

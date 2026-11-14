@@ -230,9 +230,9 @@ def run_auto_training_job(symbols: list = None):
     sharpe, sortino = calculate_sharpe_sortino(returns_val)
 
     candidate_metrics = {
-        "hit_rate": max(hit_rate, 0.635),
-        "sharpe_ratio": max(sharpe, 1.65),
-        "sortino_ratio": max(sortino, 2.10),
+        "hit_rate": hit_rate,
+        "sharpe_ratio": sharpe,
+        "sortino_ratio": sortino,
         "mae_5d": mae_5d,
         "training_samples": len(X_all),
         "features_count": len(feature_cols),
@@ -563,8 +563,8 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
 
     # Synchronize execution quote with authoritative stock header
     live_price = forecast_ref_close
-    quote_id = f"Q_{raw_sym}_{int(now*1000)}"
-    quote_as_of = datetime.now(timezone.utc).isoformat()
+    quote_id = None
+    quote_as_of = None
     try:
         from stock_data import get_stock_data
         stk_data = get_stock_data(raw_sym, use_cache=True)
@@ -660,10 +660,16 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
             r1 = bundle.get("reg_1d")
             r5 = bundle.get("reg_5d")
             r15 = bundle.get("reg_15d")
+            r30 = bundle.get("reg_30d")
 
-            if r1: exp_ret_1d = float(r1.predict(feature_vec)[0]) * 100
-            if r5: exp_ret_5d = float(r5.predict(feature_vec)[0]) * 100
-            if r15: exp_ret_20d = float(r15.predict(feature_vec)[0]) * 100
+            if not all(model is not None for model in (gbdt, r1, r5, r15, r30)):
+                raise ValueError("Incomplete model bundle")
+
+            exp_ret_1d = float(r1.predict(feature_vec)[0]) * 100
+            exp_ret_5d = float(r5.predict(feature_vec)[0]) * 100
+            ret15 = float(r15.predict(feature_vec)[0])
+            ret30 = float(r30.predict(feature_vec)[0])
+            exp_ret_20d = (ret15 + (ret30 - ret15) / 3) * 100
 
             model_loaded = True
         except Exception as e:
@@ -761,7 +767,6 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
             "upper_bound_p90": t_1d_p90,
             "expected_return": f"{exp_ret_1d:+.2f}%",
             "horizon": "1-Session (Overnight)",
-            "accuracy": "68.2%"
         },
         "5D": {
             "target": t_5d_med,
@@ -770,7 +775,6 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
             "upper_bound_p90": t_5d_p90,
             "expected_return": f"{exp_ret_5d:+.2f}%",
             "horizon": "5-Session (Weekly Swing)",
-            "accuracy": "65.4%"
         },
         "20D": {
             "target": t_20d_med,
@@ -778,8 +782,7 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
             "lower_bound_p10": t_20d_p10,
             "upper_bound_p90": t_20d_p90,
             "expected_return": f"{exp_ret_20d:+.2f}%",
-            "horizon": "20-Session (Monthly Cycle)",
-            "accuracy": "61.8%"
+            "horizon": "20-Session Interpolated Estimate" if model_loaded else "20-Session Rules-Based Estimate",
         },
     }
 
@@ -862,6 +865,7 @@ def predict_stock(symbol: str, custom_api_key: str = None) -> dict:
         "projection_cone": projection_cone,
         "model_metadata": {
             "version": active_version,
+            "inference_mode": "trained" if model_loaded else "rules",
             "model_type": "Pro Hybrid ML Ensemble (GBDT + Multi-Horizon + Squeeze)",
             "hit_rate": current_info.get("metrics", {}).get("hit_rate", 0.642),
             "sharpe_ratio": current_info.get("metrics", {}).get("sharpe_ratio", 1.78),

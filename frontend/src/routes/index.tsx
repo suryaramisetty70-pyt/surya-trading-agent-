@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { lazy, Suspense, useMemo, useState, useEffect } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { ArrowRight, Sparkles, Cpu, Landmark, HeartPulse, ShoppingCart, Wifi, Droplet, Zap, Cog } from "lucide-react";
 import { TopBar, TickerTape, WatchlistPanel } from "@/components/market/Chrome";
 import { Delta, Gauge, LivePrice, Panel, Sparkline } from "@/components/market/primitives";
-import { AI_SIGNALS, NEWS, SECTOR_PERF, candles, useLiveQuotes } from "@/lib/market";
+import { NEWS, SECTOR_PERF, candles, useLiveQuotes } from "@/lib/market";
 
 const Globe3D = lazy(() => import("@/components/market/Globe3D"));
 
@@ -52,9 +52,8 @@ function Home() {
       .catch((e) => console.error("Error fetching live Nifty:", e));
   }, []);
 
-  const niftyPrice = niftyData?.price ?? 24834.85;
-  const niftyChange = niftyData?.changePct ?? 0.68;
-  const nifty = useMemo(() => candles("NIFTY", 60, niftyPrice).map((c) => c.c), [niftyPrice]);
+  const niftyPrice = niftyData?.price ?? 0;
+  const niftyChange = niftyData?.changePct ?? 0;
   const [tab, setTab] = useState<"GAINERS" | "LOSERS" | "ACTIVE">("GAINERS");
 
   const movers = [...quotes].sort((a, b) =>
@@ -88,7 +87,8 @@ function Home() {
                 <ArrowRight className="size-4 transition group-hover:translate-x-1" />
               </Link>
               <Link
-                to="/galaxy"
+                to="/terminal"
+                hash="AI Studio"
                 className="inline-flex items-center gap-2 rounded-md border border-border px-5 py-3 text-xs font-bold tracking-[0.14em] uppercase transition hover:border-primary/60 hover:text-primary"
               >
                 Ask AI <Sparkles className="size-4 text-accent" />
@@ -96,7 +96,7 @@ function Home() {
             </div>
 
             <div className="panel mt-8 max-w-sm p-4">
-              <p className="text-[0.62rem] tracking-[0.16em] text-muted-foreground uppercase">Market Sentiment</p>
+              <p className="text-[0.62rem] tracking-[0.16em] text-muted-foreground uppercase">Illustrative Market Sentiment</p>
               <div className="mt-2 flex items-center gap-5">
                 <Gauge value={68} label="Bullish" />
                 <div className="flex-1 space-y-2 text-xs">
@@ -113,7 +113,7 @@ function Home() {
                 </div>
               </div>
               <p className="mt-3 text-[0.65rem] leading-relaxed text-muted-foreground">
-                AI derived from market breadth, volatility, momentum & news flow.
+                Example market breadth breakdown.
               </p>
             </div>
           </div>
@@ -149,44 +149,12 @@ function Home() {
               <WatchlistPanel />
             </Panel>
 
-            <Panel
-              title="AI Signals"
-              action={<span className="rounded bg-primary/15 px-2 py-0.5 text-[0.6rem] font-bold text-primary">3 NEW</span>}
-            >
+            <Panel title="Hybrid ML Forecasts">
               <ul className="space-y-3">
-                {AI_SIGNALS.slice(0, 3).map((s) => (
-                  <li key={s.symbol}>
-                    <Link
-                      to="/stock/$symbol"
-                      params={{ symbol: s.symbol }}
-                      className="grid grid-cols-[1fr_80px] items-center gap-2 p-1.5 -mx-1.5 rounded-md hover:bg-secondary/40 transition group cursor-pointer"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold group-hover:text-primary transition">{s.symbol}</span>
-                          <span
-                            className={`rounded px-1.5 py-0.5 text-[0.6rem] font-bold ${
-                              s.action === "BUY"
-                                ? "bg-bull/15 text-bull"
-                                : s.action === "SELL"
-                                  ? "bg-bear/15 text-bear"
-                                  : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            {s.action}
-                          </span>
-                        </div>
-                        <p className="text-[0.68rem] text-muted-foreground">{s.note}</p>
-                        <p className="num text-[0.65rem] text-muted-foreground">
-                          Target {s.target} · Confidence {s.confidence}%
-                        </p>
-                      </div>
-                      <div className="h-10">
-                        <Sparkline
-                          data={candles(s.symbol, 24, s.target).map((c) => c.c)}
-                          color={s.action === "SELL" ? "var(--bear)" : "var(--bull)"}
-                        />
-                      </div>
+                {["TCS", "INFY", "RELIANCE"].map((symbol) => (
+                  <li key={symbol}>
+                    <Link to="/stock/$symbol" params={{ symbol }} className="block p-2 text-sm font-semibold hover:text-primary">
+                      {symbol} · View forecast →
                     </Link>
                   </li>
                 ))}
@@ -202,19 +170,10 @@ function Home() {
           <Panel title="Market Overview" className="xl:col-span-1">
             <Link to="/stock/$symbol" params={{ symbol: "NIFTY" }} className="block group cursor-pointer">
               <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-xs text-muted-foreground font-semibold group-hover:text-primary transition">NIFTY 50 (LIVE) →</span>
+                <span className="text-xs text-muted-foreground font-semibold group-hover:text-primary transition">NIFTY 50 →</span>
                 <div className="text-right">
-                  <LivePrice value={niftyPrice} className="text-sm text-primary font-bold" />
-                  <Delta value={niftyChange} className="ml-2" />
+                  {niftyData ? <><LivePrice value={niftyPrice} className="text-sm text-primary font-bold" /><Delta value={niftyChange} className="ml-2" /></> : "Quote unavailable"}
                 </div>
-              </div>
-              <div className="h-32">
-                <Sparkline data={nifty} color="var(--primary)" height={120} />
-              </div>
-              <div className="num mt-2 flex justify-between text-[0.6rem] text-muted-foreground">
-                {["09:15", "11:00", "12:45", "14:30", "16:00"].map((t) => (
-                  <span key={t}>{t}</span>
-                ))}
               </div>
             </Link>
           </Panel>
@@ -234,6 +193,7 @@ function Home() {
               ))}
             </div>
             <ul className="divide-y divide-border/60">
+              {!movers.length && <li className="text-xs text-muted-foreground">No market quotes available yet.</li>}
               {movers.slice(0, 6).map((m) => (
                 <li key={m.symbol}>
                   <Link
@@ -252,7 +212,7 @@ function Home() {
             </ul>
           </Panel>
 
-          <Panel title="Market Heatmap">
+          <Panel title="Sample Market Heatmap">
             <div className="grid grid-cols-3 gap-1.5">
               {SECTOR_PERF.slice(0, 9).map((s) => {
                 const up = s.pct >= 0;
@@ -293,7 +253,7 @@ function Home() {
             </div>
           </Panel>
 
-          <Panel title="News & Insights">
+          <Panel title="Sample News & Insights">
             <ul className="space-y-3">
               {NEWS.slice(0, 4).map((n) => (
                 <li key={n.title} className="border-l-2 border-primary/40 pl-3">
@@ -306,7 +266,7 @@ function Home() {
             </ul>
           </Panel>
 
-          <Panel title="Portfolio Overview">
+          <Panel title="Sample Portfolio Overview">
             <p className="text-[0.62rem] tracking-widest text-muted-foreground uppercase">Total Value</p>
             <p className="num mt-1 text-2xl font-bold">₹ 28,75,450.75</p>
             <Delta value={1.35} className="mt-1" />
