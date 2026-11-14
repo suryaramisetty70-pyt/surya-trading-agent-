@@ -44,8 +44,8 @@ function Home() {
     fetch("/api/all-india-indices")
       .then((r) => r.json())
       .then((res) => {
-        if (res.status === "success" && Array.isArray(res.indices)) {
-          const n = res.indices.find((x: any) => x.symbol === "NIFTY 50");
+        if (res.status === "success" && Array.isArray(res.data)) {
+          const n = res.data.find((x: any) => x.symbol === "NIFTY 50");
           if (n) setNiftyData({ price: n.price, changePct: n.change_pct });
         }
       })
