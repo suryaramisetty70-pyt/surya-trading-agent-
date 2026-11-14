@@ -219,6 +219,16 @@ export function fmt(n: number, d = 2) {
 export function findQuote(symbol: string): Quote | null {
   if (!symbol) return null;
   const clean = symbol.trim().toUpperCase().replace(".NS", "").replace(".BO", "");
+  const indexSymbols: Record<string, { symbol: string; name: string; exchange: string }> = {
+    "NIFTY": { symbol: "NIFTY", name: "NIFTY 50", exchange: "NSE" },
+    "BANKNIFTY": { symbol: "BANKNIFTY", name: "BANK NIFTY", exchange: "NSE" },
+    "SENSEX": { symbol: "SENSEX", name: "SENSEX", exchange: "BSE" },
+  };
+  const indexKey = clean.replace(/\s+/g, "").replace(/^NIFTY50$/, "NIFTY");
+  const index = indexSymbols[indexKey];
+  if (index && Object.hasOwn(indexSymbols, indexKey)) {
+    return { ...index, price: 0, change: 0, changePct: 0, sector: "Index", marketCap: "", volume: "" };
+  }
   const existing = BASE_QUOTES.find((q) => q.symbol.toUpperCase() === clean);
   if (existing) return existing;
 

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
 import { Search, Bell, Star, User, Radio, CheckCircle2, ShieldCheck, Wallet, ArrowDownCircle, ArrowUpCircle, Settings, X, ExternalLink, Key, Sparkles, Check, Cpu } from "lucide-react";
-import { BASE_QUOTES, INDICES, useClock, useLiveQuotes, fmt } from "@/lib/market";
+import { BASE_QUOTES, INDICES, useClock, useLiveQuotes, fmt, findQuote } from "@/lib/market";
 import { Delta, LivePrice } from "./primitives";
 import { cn } from "@/lib/utils";
 import { useUserAccount, useAIKeyManager } from "@/lib/userAccount";
@@ -496,20 +496,18 @@ export function TickerTape({ className }: { className?: string }) {
 }
 
 function TickerItem({ symbol, price, pct }: { symbol: string; price: number; pct: number }) {
-  const cleanSym = symbol.replace(" (MCX)", "").replace("^", "").trim();
-  return (
-    <Link
-      to="/stock/$symbol"
-      params={{ symbol: cleanSym }}
-      className="flex min-w-[190px] flex-col justify-center border-r border-border/60 px-5 py-2 hover:bg-secondary/40 transition cursor-pointer group"
-    >
-      <span className="text-[0.62rem] tracking-[0.12em] text-muted-foreground uppercase group-hover:text-primary transition">{symbol}</span>
-      <span className="num text-sm font-semibold">
-        {price.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-      </span>
+  const quote = findQuote(symbol);
+  const className = "flex min-w-[190px] flex-col justify-center border-r border-border/60 px-5 py-2";
+  const content = (
+    <>
+      <span className="text-[0.62rem] tracking-[0.12em] text-muted-foreground uppercase">{symbol}</span>
+      <span className="num text-sm font-semibold">{price.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span>
       <Delta value={pct} />
-    </Link>
+    </>
   );
+  return quote
+    ? <Link to="/stock/$symbol" params={{ symbol: quote.symbol }} className={`${className} hover:bg-secondary/40`}>{content}</Link>
+    : <div className={className}>{content}</div>;
 }
 
 export function WatchlistPanel() {

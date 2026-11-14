@@ -118,6 +118,7 @@ function StockPage() {
   }, [quote.symbol, activeKey]);
 
   const hasQuote = !!liveData;
+  const canPaperTrade = hasQuote && quote.sector !== "Index";
   const price = liveData?.current_price ?? 0;
   const change = liveData?.change ?? 0;
   const changePct = liveData?.change_pct ?? 0;
@@ -151,14 +152,14 @@ function StockPage() {
   const targetLow = liveData?.target_low ?? 0;
 
   const handleBuy = () => {
-    if (!hasQuote) return;
+    if (!canPaperTrade) return;
     const res = paper.buyStock(quote.symbol, companyName, price, tradeQty);
     setTradeMsg({ text: res.message, ok: res.success });
     setTimeout(() => setTradeMsg(null), 4000);
   };
 
   const handleSell = () => {
-    if (!hasQuote) return;
+    if (!canPaperTrade) return;
     const res = paper.sellStock(quote.symbol, price, tradeQty);
     setTradeMsg({ text: res.message, ok: res.success });
     setTimeout(() => setTradeMsg(null), 4000);
@@ -352,13 +353,14 @@ function StockPage() {
             <MLPredictionCard
               prediction={mlPrediction}
               loading={loadingPrediction}
-              currentQuotePrice={hasQuote ? price : 0}
+              currentQuotePrice={canPaperTrade ? price : 0}
               asOf={liveData?.observed_at}
             />
 
             {/* 1-Click Virtual Paper Trading Console (Inspired by OpenAlgo) */}
             <Panel title={`1-Click Virtual Paper Trading Console — ${quote.symbol}`}>
               <div className="space-y-3 p-1">
+                {quote.sector === "Index" && <p className="text-xs text-muted-foreground">Choose an equity to paper trade shares.</p>}
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground">Quantity:</span>
@@ -386,7 +388,7 @@ function StockPage() {
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <button
                     onClick={handleBuy}
-                    disabled={!hasQuote}
+                    disabled={!canPaperTrade}
                     className="flex items-center justify-center gap-2 rounded bg-bull py-2.5 text-xs font-bold uppercase text-white hover:brightness-110 active:scale-[0.99] transition"
                   >
                     <ArrowUpRight className="size-4" />
@@ -395,7 +397,7 @@ function StockPage() {
 
                   <button
                     onClick={handleSell}
-                    disabled={!hasQuote || !userPosition || userPosition.quantity < tradeQty}
+                    disabled={!canPaperTrade || !userPosition || userPosition.quantity < tradeQty}
                     className="flex items-center justify-center gap-2 rounded bg-bear py-2.5 text-xs font-bold uppercase text-white hover:brightness-110 active:scale-[0.99] disabled:opacity-40 transition"
                   >
                     <ArrowDownRight className="size-4" />

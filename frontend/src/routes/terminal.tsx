@@ -178,7 +178,7 @@ function DashboardView() {
     fetch("/api/all-india-indices")
       .then((r) => r.json())
       .then((res) => {
-        if (res.status === "success" && Array.isArray(res.indices)) setRealIndices(res.indices);
+        if (res.status === "success" && Array.isArray(res.data)) setRealIndices(res.data);
       })
       .catch(() => setRealIndices([]));
   }, []);
